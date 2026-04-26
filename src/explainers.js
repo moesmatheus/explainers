@@ -2,6 +2,7 @@ import AICodeOnboardingExplainer from '../ai-code-onboarding/AICodeOnboardingExp
 import DataCentersExplainer from '../data-centers/DataCentersExplainer.jsx';
 import DataCentersV2Explainer from '../data-centers-v2/DataCentersV2Explainer.jsx';
 import DeepSeekV4Explainer from '../deepseek-v4/DeepSeekV4Explainer.jsx';
+import ForecastersCraftExplainer from '../forecasters-craft/ForecastersCraftExplainer.jsx';
 import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx';
 import MachineLearningExplainer from '../machine-learning/MachineLearningExplainer.jsx';
 import QuantumMechanicsExplainer from '../quantum-mechanics/QuantumMechanicsExplainer.jsx';
@@ -98,6 +99,14 @@ export const explainers = [
       'Decomposition, ETS, ARIMA, Prophet, gradient boosting, conformal prediction — the statistical/ML toolkit for forecasting continuous quantities under uncertainty. Anchored on a real ERCOT week with 50/80/95% prediction intervals.',
     tags: ['forecasting', 'interactive', 'equations'],
     component: StatisticalForecastingExplainer,
+  },
+  {
+    slug: 'forecasters-craft',
+    title: 'The Forecaster’s Craft',
+    blurb:
+      'How a quantitative football model actually earns alpha — loss alignment, the information hypothesis, feature engineering, causal lens, SSL pretraining, transfer across leagues, distributional forecasting, ensembling, honest HPO, drift, and RL portfolio selection. Anchored on the user’s Brasileirão CatBoost project.',
+    tags: ['forecasting', 'modeling', 'interactive', 'equations'],
+    component: ForecastersCraftExplainer,
   },
   {
     slug: 'superforecasting',
