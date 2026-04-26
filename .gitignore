@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Vite cache
+.vite/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.*.local
+
+# Manim shared venv (per AGENTS.md / tool_manim memory). Manim render sources
+# live under each explainer (e.g. quantum-mechanics/manim/) and ARE tracked.
+# Only the venv + render cache are excluded.
+.tools/manim/venv/
+.tools/**/__pycache__/
+.tools/**/*.pyc
+
+# Claude Code local settings (may contain machine-specific values)
+.claude/settings.local.json

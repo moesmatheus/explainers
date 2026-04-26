@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* Keep Tailwind v4's auto content scanner out of .tools/ — it holds the
+   shared Manim venv + render cache, whose intermediate SVGs otherwise
+   crash vite:css-analysis. */
+@source not "../.tools/**";
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background-color: #0a0a0a;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* KaTeX overrides --------------------------------------------------------- */
+
+.katex {
+  font-size: 1.02em;
+  color: inherit;
+}
+
+/* drop default 1em vertical margin on display math so it fits inside our boxes */
+.katex-display {
+  margin: 0 !important;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex-display > .katex {
+  display: inline-block;
+  text-align: center;
+  white-space: normal;
+}
+
+/* the headline equation box should have larger math */
+.keq-display .katex {
+  font-size: 1.18em;
+}
+
+/* tiny tab indent for inline math under prose */
+.eq-inline .katex {
+  font-size: 1em;
+}
