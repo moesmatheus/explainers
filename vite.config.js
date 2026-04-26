@@ -10,7 +10,7 @@ import tailwindcss from '@tailwindcss/vite';
 // Override either via VITE_BASE env var if you fork to a differently-named repo.
 export default defineConfig(({ command }) => {
   const isBuild = command === 'build';
-  const base = process.env.VITE_BASE ?? (isBuild ? '/explainers-claude/' : '/');
+  const base = process.env.VITE_BASE ?? (isBuild ? '/explainers/' : '/');
   return {
     base,
     plugins: [react(), tailwindcss()],
