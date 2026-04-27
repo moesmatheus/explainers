@@ -1,4 +1,5 @@
 import AICodeOnboardingExplainer from '../ai-code-onboarding/AICodeOnboardingExplainer.jsx';
+import BettorsStackExplainer from '../bettors-stack/BettorsStackExplainer.jsx';
 import DataCentersExplainer from '../data-centers/DataCentersExplainer.jsx';
 import DataCentersV2Explainer from '../data-centers-v2/DataCentersV2Explainer.jsx';
 import DeepSeekV4Explainer from '../deepseek-v4/DeepSeekV4Explainer.jsx';
@@ -99,6 +100,14 @@ export const explainers = [
       'Decomposition, ETS, ARIMA, Prophet, gradient boosting, conformal prediction — the statistical/ML toolkit for forecasting continuous quantities under uncertainty. Anchored on a real ERCOT week with 50/80/95% prediction intervals.',
     tags: ['forecasting', 'interactive', 'equations'],
     component: StatisticalForecastingExplainer,
+  },
+  {
+    slug: 'bettors-stack',
+    title: 'The Bettor’s Stack',
+    blurb:
+      'How a calibrated forecast becomes bankroll growth — vig removal & true probabilities, CLV as the only honest edge metric, walk-forward CV, multiple-testing inflation, Kelly geometry, fractional shrinkage under uncertainty, risk of ruin, portfolio correlation, the alpha map, and account limits. Sibling to The Forecaster’s Craft.',
+    tags: ['betting', 'kelly', 'interactive', 'equations'],
+    component: BettorsStackExplainer,
   },
   {
     slug: 'forecasters-craft',
