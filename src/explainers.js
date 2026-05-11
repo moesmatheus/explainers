@@ -6,8 +6,10 @@ import DeepSeekV4Explainer from '../deepseek-v4/DeepSeekV4Explainer.jsx';
 import ForecastersCraftExplainer from '../forecasters-craft/ForecastersCraftExplainer.jsx';
 import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx';
 import MachineLearningExplainer from '../machine-learning/MachineLearningExplainer.jsx';
+import MarketsModelingExplainer from '../markets-modeling/MarketsModelingExplainer.jsx';
 import QuantumMechanicsExplainer from '../quantum-mechanics/QuantumMechanicsExplainer.jsx';
 import ReinforcementLearningExplainer from '../reinforcement-learning/ReinforcementLearningExplainer.jsx';
+import RetailQuantExplainer from '../retail-quant/RetailQuantExplainer.jsx';
 import DeepUncertaintyExplainer from '../deep-uncertainty/DeepUncertaintyExplainer.jsx';
 import StatisticalForecastingExplainer from '../statistical-forecasting/StatisticalForecastingExplainer.jsx';
 import SuperforecastingExplainer from '../superforecasting/SuperforecastingExplainer.jsx';
@@ -100,6 +102,22 @@ export const explainers = [
       'Decomposition, ETS, ARIMA, Prophet, gradient boosting, conformal prediction — the statistical/ML toolkit for forecasting continuous quantities under uncertainty. Anchored on a real ERCOT week with 50/80/95% prediction intervals.',
     tags: ['forecasting', 'interactive', 'equations'],
     component: StatisticalForecastingExplainer,
+  },
+  {
+    slug: 'markets-modeling',
+    title: 'Modeling Markets',
+    blurb:
+      'From the random walk to transformer-on-orderbook — each model adds one realistic feature to the prior. AR/MA, ARCH/GARCH, stochastic & rough vol, jumps, factors, state-space, regime-switching, Bayesian, microstructure, ML, sequence models, and SOTA. The modeling-side sibling of The Retail Quant’s Stack.',
+    tags: ['quant', 'markets', 'modeling', 'interactive', 'equations'],
+    component: MarketsModelingExplainer,
+  },
+  {
+    slug: 'retail-quant',
+    title: 'The Retail Quant’s Stack',
+    blurb:
+      'A multi-strategy book at home — no leverage, no HFT, no relative-value arb. Harvest intrinsic risk premia (factors, trend, vol, real rates), size for survival, pay the cost+tax tax honestly, and stitch sleeves that don’t move together. Anchored on a $250k 4-sleeve book at a foreign broker for a BR-domiciled investor.',
+    tags: ['quant', 'markets', 'interactive', 'equations'],
+    component: RetailQuantExplainer,
   },
   {
     slug: 'bettors-stack',
