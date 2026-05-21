@@ -1,7 +1,9 @@
 import AICodeOnboardingExplainer from '../ai-code-onboarding/AICodeOnboardingExplainer.jsx';
+import AppStackExplainer from '../app-stack/AppStackExplainer.jsx';
 import BettorsStackExplainer from '../bettors-stack/BettorsStackExplainer.jsx';
 import DataCentersExplainer from '../data-centers/DataCentersExplainer.jsx';
 import DataCentersV2Explainer from '../data-centers-v2/DataCentersV2Explainer.jsx';
+import DataCentersBrExplainer from '../data-centers-br/DataCentersBrExplainer.jsx';
 import DeepSeekV4Explainer from '../deepseek-v4/DeepSeekV4Explainer.jsx';
 import ForecastersCraftExplainer from '../forecasters-craft/ForecastersCraftExplainer.jsx';
 import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx';
@@ -32,6 +34,14 @@ export const explainers = [
     component: AICodeOnboardingExplainer,
   },
   {
+    slug: 'app-stack',
+    title: 'The Stack',
+    blurb:
+      'What to pick when you\u2019re vibecoding production-grade AI-native SaaS \u2014 framework, API, DB, auth, hosting, jobs, observability, LLM provider, RAG, agents, eval. Layer by layer with cost ballparks and a deviation map.',
+    tags: ['software', 'interactive', 'decision-making'],
+    component: AppStackExplainer,
+  },
+  {
     slug: 'data-centers',
     title: 'Data Centers',
     blurb:
@@ -46,6 +56,14 @@ export const explainers = [
       'Same content, redesigned for mental-model throughput: predict-before-reveal, worked examples, Q&A self-checks, misconception boxes, and cross-card callbacks.',
     tags: ['infrastructure', 'interactive', 'pedagogy'],
     component: DataCentersV2Explainer,
+  },
+  {
+    slug: 'data-centers-br',
+    title: 'Data Centers · Brasil · mapa competitivo',
+    blurb:
+      'Quem é quem nos data centers carrier-neutral do Brasil — 9 players, 9 dimensões. Capacidade, geografia, investidores, clientes, estratégia, diferenciais e M&A. Ótica de operador entendendo seus competidores.',
+    tags: ['infrastructure', 'interactive', 'pt-br'],
+    component: DataCentersBrExplainer,
   },
   {
     slug: 'deepseek-v4',
