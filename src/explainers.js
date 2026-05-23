@@ -1,6 +1,7 @@
 import AICodeOnboardingExplainer from '../ai-code-onboarding/AICodeOnboardingExplainer.jsx';
 import AppStackExplainer from '../app-stack/AppStackExplainer.jsx';
 import BettorsStackExplainer from '../bettors-stack/BettorsStackExplainer.jsx';
+import CausalInferenceExplainer from '../causal-inference/CausalInferenceExplainer.jsx';
 import DataCentersExplainer from '../data-centers/DataCentersExplainer.jsx';
 import DataCentersV2Explainer from '../data-centers-v2/DataCentersV2Explainer.jsx';
 import DataCentersBrExplainer from '../data-centers-br/DataCentersBrExplainer.jsx';
@@ -184,5 +185,13 @@ export const explainers = [
       'Circular flow, GDP, trade, sectoral balances, money, rates, the dollar system, and the 2025–26 regime — with real numbers.',
     tags: ['economics', 'interactive', 'data'],
     component: WorldEconomyExplainer,
+  },
+  {
+    slug: 'causal-inference',
+    title: 'Causal Inference',
+    blurb:
+      'From correlation to counterfactual — potential outcomes, Pearl’s DAGs, and the estimator toolkit (RCT, matching, IPW, IV, diff-in-diff, RDD, synthetic control, double ML). Anchored on the LaLonde job-training puzzle, scoring every estimator against an experimental benchmark.',
+    tags: ['statistics', 'methods', 'interactive', 'equations'],
+    component: CausalInferenceExplainer,
   },
 ];
