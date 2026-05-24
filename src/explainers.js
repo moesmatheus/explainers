@@ -2,6 +2,7 @@ import AICodeOnboardingExplainer from '../ai-code-onboarding/AICodeOnboardingExp
 import AppStackExplainer from '../app-stack/AppStackExplainer.jsx';
 import BettorsStackExplainer from '../bettors-stack/BettorsStackExplainer.jsx';
 import CausalInferenceExplainer from '../causal-inference/CausalInferenceExplainer.jsx';
+import ControlTheoryExplainer from '../control-theory/ControlTheoryExplainer.jsx';
 import DataCentersExplainer from '../data-centers/DataCentersExplainer.jsx';
 import DataCentersV2Explainer from '../data-centers-v2/DataCentersV2Explainer.jsx';
 import DataCentersBrExplainer from '../data-centers-br/DataCentersBrExplainer.jsx';
@@ -193,5 +194,13 @@ export const explainers = [
       'From correlation to counterfactual — potential outcomes, Pearl’s DAGs, and the estimator toolkit (RCT, matching, IPW, IV, diff-in-diff, RDD, synthetic control, double ML). Anchored on the LaLonde job-training puzzle, scoring every estimator against an experimental benchmark.',
     tags: ['statistics', 'methods', 'interactive', 'equations'],
     component: CausalInferenceExplainer,
+  },
+  {
+    slug: 'control-theory',
+    title: 'Control Theory',
+    blurb:
+      'The math of feedback — and the predecessor to RL. State-space dynamics, PID, stability, LQR, Kalman, LQG, MPC, HJB. Anchored on cart-pole and the explicit bridge from Riccati’s closed-form K to policy gradients finding the same K by descent.',
+    tags: ['control', 'interactive', 'equations'],
+    component: ControlTheoryExplainer,
   },
 ];
