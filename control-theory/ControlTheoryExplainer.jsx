@@ -432,6 +432,29 @@ const Term = ({ children, def }) => {
 
 // --- Pedagogy primitives ----------------------------------------------------
 
+// "Intuition" — the narrative bridge from everyday picture to the math that follows.
+// Use as the FIRST block in a math-heavy card, before any symbols. Longer and more
+// narrative than MinSchema (the takeaway box); earlier and motivating, unlike Deeper.
+const Intuition = ({ children, title = 'first, the picture' }) => (
+  <div className="mt-2 mb-3 rounded-lg border border-cyan-400/25 bg-cyan-400/[0.04] px-4 py-3">
+    <div className="flex items-center gap-2 mb-2">
+      <Lightbulb className="w-3.5 h-3.5 text-cyan-300" />
+      <span className="text-[10px] uppercase tracking-[0.2em] text-cyan-300">{title}</span>
+    </div>
+    <div className="text-[14px] leading-relaxed text-neutral-200 space-y-2">{children}</div>
+  </div>
+);
+
+// "ReadEq" — sits immediately AFTER a Block equation. Narrates the equation in plain
+// English, treating it like a sentence to read left-to-right. Same cyan thread as
+// Intuition so the reader learns the pattern. Indented left-border style (unobtrusive).
+const ReadEq = ({ children }) => (
+  <div className="mt-1 mb-3 pl-3 border-l-2 border-cyan-400/40 text-[13px] text-neutral-300 leading-relaxed">
+    <span className="text-[9px] uppercase tracking-[0.22em] text-cyan-300 mr-2 font-mono">read as</span>
+    {children}
+  </div>
+);
+
 const MinSchema = ({ children }) => (
   <div className="mt-2 mb-4 rounded-md border border-emerald-400/25 bg-emerald-400/5 px-3 py-2 flex items-start gap-2">
     <Ruler className="w-3.5 h-3.5 mt-[2px] text-emerald-300 shrink-0" />
@@ -991,13 +1014,38 @@ const DynamicsCard = () => {
   return (
     <Card id="dynamics" icon={Layers} title="State-space dynamics" accent="sky" index={2}
           subtitle="The lingua franca: one matrix encodes the physics, another tells the controller where it can push.">
-      <MinSchema>
-        Every linear time-invariant plant looks the same once you write it down:
-        the next instant of <Term>state</Term> is a linear function of the current state and
-        the current input.
-      </MinSchema>
+      <Intuition>
+        <p>
+          A <em>state</em> is a snapshot of everything you need to know about the plant <em>right now</em>
+          to predict where it’s heading. For the cart-pole, four numbers do it: where the
+          cart is (<Eq>{'x_{cart}'}</Eq>), how fast it’s moving (<Eq>{'\\dot x_{cart}'}</Eq>),
+          how tilted the pole is (<Eq>{'\\theta'}</Eq>), and how fast the pole is spinning
+          (<Eq>{'\\dot\\theta'}</Eq>). Bundle those four into a vector <Eq>{'x'}</Eq>.
+        </p>
+        <p>
+          What we want is a rule that says "given the current snapshot and the force I’m
+          applying, what does the snapshot look like an instant later?" For physical systems
+          near an equilibrium, that rule turns out to be just <em>matrix arithmetic</em>:
+          multiply the snapshot by a matrix <Eq>{'\\sk{A}'}</Eq>, multiply the force by
+          a column <Eq>{'\\sk{B}'}</Eq>, add them up. That’s state-space.
+        </p>
+        <p>
+          <Eq>{'\\sk{A}'}</Eq> is the physics of the plant when nobody pushes it — gravity,
+          inertia, springs, damping. <Eq>{'\\sk{B}'}</Eq> is which directions of the snapshot
+          your one input is actually allowed to change.
+        </p>
+      </Intuition>
 
       <Block>{'\\dot{\\sk{x}} = \\sk{A}\\,\\sk{x} + \\sk{B}\\,\\co{u} \\qquad \\sk{y} = C\\,\\sk{x} + D\\,\\co{u}'}</Block>
+
+      <ReadEq>
+        Left equation: the rate of change of the snapshot <Eq>{'\\dot x'}</Eq> equals
+        the physics matrix times the snapshot, plus the input matrix times the force.
+        Right equation: what you actually measure (<Eq>{'y'}</Eq>) is some linear function of
+        the snapshot (<Eq>{'C'}</Eq>) plus possibly a direct feed-through of the input
+        (<Eq>{'D'}</Eq> — usually zero). The whole subject — stability, controllability,
+        every algorithm in this explainer — is just questions about those four matrices.
+      </ReadEq>
 
       <p>
         The matrix <Eq>{'A'}</Eq> carries the physics — what the plant would do on its own,
@@ -1205,10 +1253,45 @@ const PidCard = () => {
   return (
     <Card id="pid" icon={Sliders} title="PID · the workhorse" accent="emerald" index={4}
           subtitle="Three knobs that run 80% of industrial control. Proportional reacts, Integral cancels bias, Derivative dampens.">
+      <Intuition>
+        <p>
+          Imagine you’re driving and trying to stay centered in your lane. You glance
+          at the line and notice you’re a foot off-center. Three things you can do about it:
+        </p>
+        <ul className="list-disc pl-5 space-y-1 text-[13px]">
+          <li><strong className="text-emerald-200">React to <em>how far off</em> you are right now</strong> — bigger drift, bigger correction. That’s the
+            <em> proportional</em> term: <Eq>{'\\co{K_p}\\cdot e'}</Eq>. The <em>error</em> <Eq>{'e'}</Eq> is just
+            "where I want to be minus where I am" — here, the pole’s tilt angle <Eq>{'\\theta'}</Eq>.</li>
+          <li><strong className="text-emerald-200">React to <em>how long</em> you’ve been off</strong> — if you’ve been drifting left for a while, push harder
+            right even if the current drift is small. That memory of past error is the <em>integral</em>:
+            <Eq>{'\\co{K_i}\\!\\int e\\,dt'}</Eq>. It fixes <em>steady-state offset</em> — biases the
+            proportional term alone never beats.</li>
+          <li><strong className="text-emerald-200">React to <em>where you’re heading</em></strong> — if you’re drifting LEFT but the drift is
+            slowing down, don’t over-correct. The <em>derivative</em> <Eq>{'\\co{K_d}\\cdot\\dot e'}</Eq>
+            looks at how fast the error is changing and adds damping.</li>
+        </ul>
+        <p>
+          PID is just those three reactions added together, each with a <em>gain</em>
+          (<Eq>{'\\co{K_p, K_i, K_d}'}</Eq>) saying how strongly to react. Tuning a PID is
+          tuning those three numbers. The cart-pole below uses <Eq>{'e = \\theta'}</Eq> —
+          how far the pole is tilted from vertical — as the single error signal.
+        </p>
+      </Intuition>
       <MinSchema>
-        For a scalar error <Eq>{'e = \\theta'}</Eq>:
+        Putting the three terms together — this is the whole PID equation:
       </MinSchema>
       <Block>{'\\co{u(t)} = K_p\\,e(t) + K_i\\!\\int_0^t\\!\\! e(s)\\,ds + K_d\\,\\dot e(t)'}</Block>
+      <ReadEq>
+        At each instant <Eq>{'t'}</Eq>, compute three signals from the error: the error{' '}
+        <em>right now</em> <Eq>{'e(t)'}</Eq>, the running total of error so far{' '}
+        <Eq>{'\\int_0^t e(s)\\,ds'}</Eq>, and how fast the error is changing{' '}
+        <Eq>{'\\dot e(t)'}</Eq>. Multiply each by its gain (<Eq>{'K_p, K_i, K_d'}</Eq>) — that gain
+        says how much you care about that piece — and sum them up. The result <Eq>{'u(t)'}</Eq> is
+        the command you send to the actuator. If all three gains are zero, <Eq>{'u = 0'}</Eq>:
+        you’re back to open-loop, ignoring the error completely. <Eq>{'K_p'}</Eq> alone gives
+        a springy reaction (over-shoots, oscillates); add <Eq>{'K_d'}</Eq> to damp the spring;
+        add <Eq>{'K_i'}</Eq> to grind out any persistent bias the spring leaves behind.
+      </ReadEq>
 
       <div className="grid md:grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 text-[10px] text-neutral-400 font-mono">
@@ -1326,13 +1409,38 @@ const StabilityCard = () => {
   return (
     <Card id="stability" icon={Target} title="Stability & Lyapunov" accent="sky" index={5}
           subtitle="Stability lives in the real parts of the eigenvalues. Lyapunov certifies the nonlinear case.">
-      <MinSchema>
-        For <Eq>{'\\dot x = A x'}</Eq>, the system is asymptotically stable iff every
-        eigenvalue of <Eq>{'A'}</Eq> has negative real part. Equivalently, every
-        <Term>pole</Term> sits in the open left-half plane.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Tap a bell. The ringing fades to silence — the bell is <em>stable</em>. If
+          instead you tapped something that started ringing louder and louder by itself,
+          you’d call it unstable. Same picture for any plant: poke it once, then watch
+          what its state does over time.
+        </p>
+        <p>
+          Mathematically, every linear plant <Eq>{'\\dot x = A x'}</Eq> has a small set of
+          natural <em>modes</em> — directions in state-space that decay or grow
+          exponentially. The growth/decay rate of each mode is the real part of an{' '}
+          <Term>eigenvalue</Term> of <Eq>{'A'}</Eq>. Negative real part → decays → stable.
+          Positive → grows → unstable. The imaginary part says how fast it oscillates while
+          decaying or growing.
+        </p>
+        <p>
+          Below: a classic 2nd-order system (mass on a spring with damping). Two knobs:
+          <Eq>{'\\co{\\omega_n}'}</Eq> sets how fast it naturally wants to oscillate;
+          <Eq>{'\\co{\\zeta}'}</Eq> sets how much damping is mixed in.
+        </p>
+      </Intuition>
 
       <Block>{'\\sk{\\ddot y} + 2\\,\\co{\\zeta}\\,\\co{\\omega_n}\\,\\sk{\\dot y} + \\co{\\omega_n^2}\\,\\sk{y} = \\co{\\omega_n^2}\\,r'}</Block>
+
+      <ReadEq>
+        The acceleration <Eq>{'\\ddot y'}</Eq> equals minus a damping term (proportional to
+        velocity <Eq>{'\\dot y'}</Eq>, scaled by <Eq>{'2\\zeta\\omega_n'}</Eq>) minus a
+        restoring term (proportional to displacement <Eq>{'y'}</Eq>, scaled by{' '}
+        <Eq>{'\\omega_n^2'}</Eq>) plus a forcing from the reference <Eq>{'r'}</Eq>. With
+        <Eq>{'\\zeta > 0'}</Eq>, oscillations decay (poles in LHP). With <Eq>{'\\zeta = 0'}</Eq>,
+        pure undamped oscillation. With <Eq>{'\\zeta < 0'}</Eq>, oscillations grow — runaway.
+      </ReadEq>
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-[10px] text-neutral-400 font-mono">
@@ -1432,13 +1540,40 @@ const SensitivityCard = () => {
   return (
     <Card id="sensitivity" icon={TrendingUp} title="Sensitivity & the waterbed" accent="amber" index={6}
           subtitle="S + T = 1 identically. Push one of them down at a frequency; the other has to come up.">
-      <MinSchema>
-        With loop gain <Eq>{'L(s)'}</Eq>, the <Term>sensitivity function</Term> is
-        <Eq>{'S = 1/(1 + L)'}</Eq> and the <Term>complementary sensitivity</Term> is
-        <Eq>{'T = L/(1 + L)'}</Eq>. <Eq>{'S + T = 1'}</Eq> for every <Eq>{'\\omega'}</Eq>.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Picture an actual waterbed. Press the mattress down in one spot, the water has
+          to go somewhere — it bulges up somewhere else. You can change the <em>shape</em>
+          of the bulge but you can’t flatten the whole mattress at once. That’s the
+          constraint behind closed-loop control.
+        </p>
+        <p>
+          The plant sees three things hitting its output: the reference <Eq>{'r'}</Eq>{' '}
+          (what you want it to do), disturbances <Eq>{'d'}</Eq> (wind, load, anything you
+          didn’t model), and sensor noise <Eq>{'v'}</Eq> (errors in what you can measure).
+          Each of these passes through the closed loop with a different gain at each
+          frequency. Those gains are the <em>sensitivity functions</em>.
+        </p>
+        <p>
+          Two are enough to know everything: <strong>S(jω)</strong> — how much a disturbance at
+          frequency <Eq>{'\\omega'}</Eq> shows up at the output. <strong>T(jω)</strong> — how much of
+          the reference (and unfortunately also the sensor noise) actually reaches the
+          output. The waterbed lesson is the identity <Eq>{'S + T = 1'}</Eq>: at every
+          frequency, push one of them down, the other has to come up.
+        </p>
+      </Intuition>
 
       <Block>{'\\sk{y} = \\co{T(s)}\\,r + \\co{S(s)}\\,d - \\co{T(s)}\\,v'}</Block>
+
+      <ReadEq>
+        The output <Eq>{'y'}</Eq> at any frequency is the reference filtered through
+        <Eq>{'T'}</Eq>, plus disturbances filtered through <Eq>{'S'}</Eq>, minus sensor noise
+        filtered through <Eq>{'T'}</Eq>. So you want <Eq>{'T \\approx 1'}</Eq> at frequencies
+        where you actually want to track <Eq>{'r'}</Eq> (low-ish), <Eq>{'S \\approx 0'}</Eq>{' '}
+        where disturbances live (also low-ish), and <Eq>{'T \\approx 0'}</Eq> where sensor
+        noise lives (high). The first two pull in the same direction; the third pulls the
+        opposite way. Tuning a loop is balancing these three desires across frequency.
+      </ReadEq>
 
       <p className="text-sm text-neutral-300">
         Three jobs, one transfer function each. <Eq>{'T'}</Eq> tracks the reference but also
@@ -1559,11 +1694,31 @@ const FrequencyCard = () => {
   return (
     <Card id="frequency" icon={LineChart} title="Bode & Nyquist" accent="cyan" index={7}
           subtitle="The same loop L(jω), two ways to look at it. Bode reads stability margins; Nyquist reads encirclements.">
-      <MinSchema>
-        Plot the open-loop frequency response <Eq>{'L(j\\omega) = K(j\\omega)G(j\\omega)'}</Eq>.
-        <strong> Bode</strong>: gain and phase vs ω. <strong>Nyquist</strong>: the curve <Eq>{'\\{L(j\\omega) : \\omega \\in \\mathbb R\\}'}</Eq>
-        in the complex plane, around the critical point <Eq>{'-1 + 0j'}</Eq>.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Take any linear plant and shake its input with a pure sine wave at frequency
+          <Eq>{'\\omega'}</Eq>. The output is another sine wave at the same frequency — but
+          generally with a different amplitude and a different phase delay. The
+          <strong> frequency response</strong> <Eq>{'L(j\\omega)'}</Eq> records exactly that:
+          for each frequency, "how much does the output grow?" and "by how much is it
+          delayed?"
+        </p>
+        <p>
+          Two ways to look at the same recording. A <strong>Bode plot</strong> separates the
+          two pieces — gain on a log-log axis, phase on a log-linear axis below. Easy to
+          read off "what does the loop do to a 1 Hz signal?" A <strong>Nyquist plot</strong>{' '}
+          packs both into a single 2-D curve: plot the complex number <Eq>{'L(j\\omega)'}</Eq>{' '}
+          in the plane as <Eq>{'\\omega'}</Eq> sweeps. Looks abstract but reads stability
+          by simple geometry — how many times does the curve wrap around the point{' '}
+          <Eq>{'-1'}</Eq>?
+        </p>
+        <p>
+          Two numbers to read off any loop: <strong>gain margin</strong> (how much you could
+          turn the loop gain up before unstable) and <strong>phase margin</strong> (how much
+          extra delay the loop tolerates before unstable). Both are robustness measures —
+          they say how forgiving your design is to modelling errors.
+        </p>
+      </Intuition>
 
       <div className="flex flex-wrap items-center gap-2 mb-2">
         <button onClick={() => setView('bode')}
@@ -1739,12 +1894,29 @@ const ControllabilityCard = () => {
   return (
     <Card id="controllability" icon={Move} title="Controllability" accent="emerald" index={8}
           subtitle="Can the input u steer the state x from anywhere to anywhere? Read off the rank of [B, AB, A²B, …].">
-      <MinSchema>
-        The pair <Eq>{'(A, B)'}</Eq> is <Term>controllability</Term>-controllable iff the
-        matrix <Eq>{'\\mathcal{C} = [B,\\ AB,\\ A^2B,\\ \\dots,\\ A^{n-1}B]'}</Eq> has full row
-        rank <Eq>{'n'}</Eq>. Otherwise some state directions are unreachable, no matter the
-        input.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Imagine you’re trying to park a car. You have one input — the steering wheel
+          (let’s say no gas, just coasting on flat ground). Can you reach every spot in the
+          parking lot? If you can also drive forward and back, sure. But with only steering
+          and no engine, you’re stuck wherever you started.
+        </p>
+        <p>
+          That’s the controllability question: given the input <Eq>{'u'}</Eq> (a column you
+          can push along <Eq>{'B'}</Eq>) and the plant’s own dynamics (matrix <Eq>{'A'}</Eq>),
+          can you steer the state to <em>any</em> target? Sometimes yes — the plant lets you
+          reach everywhere. Sometimes there are directions in state-space your one input
+          simply cannot touch.
+        </p>
+        <p>
+          The test is the <strong>controllability matrix</strong>. Stack columns: where can
+          you go with a tiny push <Eq>{'B'}</Eq>, where does <em>that</em> go under the
+          dynamics <Eq>{'AB'}</Eq>, then <Eq>{'A^2 B'}</Eq>, … For an <Eq>{'n'}</Eq>-state
+          plant, if these <Eq>{'n'}</Eq> columns span the full state-space, you can reach
+          anywhere. If they collapse to a smaller subspace, the missing directions are{' '}
+          <em>unreachable</em> — no input sequence will ever steer you there.
+        </p>
+      </Intuition>
 
       <p className="text-sm text-neutral-300">
         Pick the two components of the input matrix <Eq>{'\\sk{B} = (\\alpha, \\beta)^\\top'}</Eq>
@@ -1823,11 +1995,30 @@ const ObservabilityCard = () => {
   return (
     <Card id="observability" icon={Eye} title="Observability" accent="violet" index={9}
           subtitle="Dual to controllability: can the output y reveal the entire state, given enough time?">
-      <MinSchema>
-        The pair <Eq>{'(A, C)'}</Eq> is observable iff
-        <Eq>{'\\mathcal{O} = [C;\\ CA;\\ CA^2;\\ \\dots;\\ CA^{n-1}]^\\top'}</Eq> has full column
-        rank. Otherwise some directions of state are invisible to any sensor history.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Blindfold someone in a moving car. They can’t see the speedometer or the road —
+          but they <em>can</em> feel the seat pushing against their back (acceleration).
+          Given enough time, could they figure out where the car is and how fast it’s
+          moving? Yes, by integrating acceleration twice. The single measurement they have
+          access to <em>contains enough information</em>, even though it’s not directly the
+          state they want.
+        </p>
+        <p>
+          That’s observability. The output <Eq>{'y = Cx'}</Eq> is one (or a few) numbers
+          drawn from the state. The question is: by watching <Eq>{'y'}</Eq> evolve over
+          time, can you reconstruct the entire state <Eq>{'x'}</Eq>? Sometimes yes (cart
+          position alone reveals velocity, pole angle, and angular velocity, because all
+          four show up in how position evolves). Sometimes no — if a mode never affects
+          <Eq>{'y'}</Eq>, no amount of watching reveals it.
+        </p>
+        <p>
+          The test is structurally identical to controllability, just flipped: stack rows
+          <Eq>{'C'}</Eq>, <Eq>{'CA'}</Eq>, <Eq>{'CA^2'}</Eq>, … and ask if they span the
+          state-space. If yes — observable. The Kalman observer in card 12 is what you
+          build <em>given</em> observability.
+        </p>
+      </Intuition>
 
       <p className="text-sm text-neutral-300">
         Pick the row vector <Eq>{'C = (\\gamma, \\delta)'}</Eq> — what your sensor sees of
@@ -2003,15 +2194,58 @@ const LqrCard = () => {
   return (
     <Card id="lqr" icon={Sigma} title="★ LQR · Riccati" accent="fuchsia" index={10} anchor
           subtitle="Optimal linear control in closed form. Pick the cost; the policy falls out of a matrix equation.">
-      <MinSchema>
-        For linear dynamics and quadratic cost, the optimal policy is
-        <Eq>{'\\co{u} = -K\\sk{x}'}</Eq>. The gain <Eq>{'K'}</Eq> comes from solving the
-        <strong> algebraic Riccati equation</strong> for the cost-to-go matrix <Eq>{'\\an{P}'}</Eq>.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Two simple promises. <strong>First</strong>: the plant is linear (so the
+          state-space formula <Eq>{'\\dot x = Ax + Bu'}</Eq> from card 2 holds exactly).
+          <strong> Second</strong>: you measure how good a trajectory is by adding up two
+          quadratic penalties over time — how far the state is from zero (weighted by a
+          matrix <Eq>{'Q'}</Eq>) plus how much control effort you used (weighted by{' '}
+          <Eq>{'R'}</Eq>).
+        </p>
+        <p>
+          Make those two promises and an actual <em>miracle</em> happens. The optimal
+          controller is <strong>linear</strong>: <Eq>{'u^* = -Kx'}</Eq>. Just a matrix times
+          the state. And the optimal gain <Eq>{'K'}</Eq> is uniquely determined by
+          <Eq>{'A, B, Q, R'}</Eq> — no tuning, no iteration, no guessing. Solve one matrix
+          equation (the Riccati) once and you have it forever.
+        </p>
+        <p>
+          The dials are <Eq>{'Q'}</Eq> and <Eq>{'R'}</Eq>. <Eq>{'Q'}</Eq> says what you care
+          about — big <Eq>{'Q'}</Eq> on the angle means "I really don’t want the pole to
+          tilt". <Eq>{'R'}</Eq> says how expensive control effort is — big <Eq>{'R'}</Eq>{' '}
+          means "go gentle on the actuator". The ratio between them sets how aggressive
+          the controller is.
+        </p>
+        <p>
+          The intermediate object is the <strong>cost-to-go matrix</strong> <Eq>{'P'}</Eq>:
+          for any starting state <Eq>{'x_0'}</Eq>, the total future cost you’ll incur
+          under the optimal policy is <Eq>{'x_0^\\top P x_0'}</Eq>. <Eq>{'P'}</Eq> is the
+          value function of the LQR problem — and the seed for cards 15 (HJB) and 19 (PG).
+        </p>
+      </Intuition>
 
       <Block>{'\\co{u^*} = \\arg\\min_{\\co{u}} \\int_0^\\infty\\!\\!\\big(\\sk{x^\\top} Q\\,\\sk{x} + \\co{u^\\top} R\\, \\co{u}\\big)\\,dt \\quad\\Longrightarrow\\quad \\co{u^*} = -K\\sk{x},~K = R^{-1} B^\\top \\an{P}'}</Block>
 
+      <ReadEq>
+        Left side reads "find the control trajectory that minimizes the cumulative cost
+        over all future time." Right side is the answer: the optimal control is just{' '}
+        <Eq>{'-K \\cdot x'}</Eq> where the gain matrix <Eq>{'K'}</Eq> is built from{' '}
+        <Eq>{'R'}</Eq>, <Eq>{'B'}</Eq>, and the cost-to-go matrix <Eq>{'P'}</Eq>. So if you
+        know <Eq>{'P'}</Eq>, you know everything.
+      </ReadEq>
+
       <Block>{'\\an{A^\\top P + P A - P B R^{-1} B^\\top P + Q = 0}'}</Block>
+
+      <ReadEq>
+        This is the <strong>algebraic Riccati equation</strong>: the matrix equation{' '}
+        <Eq>{'P'}</Eq> must satisfy. Don’t try to read it term-by-term — read it as a
+        single fixed point. Plug in <Eq>{'A, B, Q, R'}</Eq>, search for the symmetric
+        positive-definite <Eq>{'P'}</Eq> that makes the whole expression equal zero. There
+        is exactly one such <Eq>{'P'}</Eq> under mild conditions; numerical solvers find
+        it in microseconds. Then <Eq>{'K = R^{-1} B^\\top P'}</Eq>. Done. The card below
+        solves this live every time you move a slider.
+      </ReadEq>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         {[
@@ -2144,11 +2378,29 @@ const CostShapeCard = () => {
   return (
     <Card id="costshape" icon={Scale} title="Cost shaping · Q, R" accent="amber" index={11}
           subtitle="The Q diagonal is what you care about; R is what you can afford. Sweep them and watch the policy follow.">
-      <MinSchema>
-        Q penalizes state deviation; R penalizes control effort. The ratio <Eq>{'Q/R'}</Eq>
-        sets the closed-loop bandwidth — high Q drives the state toward zero fast and at
-        any cost; high R keeps <Eq>{'u'}</Eq> gentle and accepts slower settling.
-      </MinSchema>
+      <Intuition>
+        <p>
+          The LQR card said the policy <Eq>{'u = -Kx'}</Eq> is uniquely determined by
+          <Eq>{'(A, B, Q, R)'}</Eq>. The physics <Eq>{'(A, B)'}</Eq> you can’t change. So
+          all the design freedom you have is in <Eq>{'Q'}</Eq> and <Eq>{'R'}</Eq> — what
+          you penalize.
+        </p>
+        <p>
+          Think of <Eq>{'Q'}</Eq> as a 4-entry table for the cart-pole: "I pay{' '}
+          <Eq>{'Q_{xx}'}</Eq> per unit² of cart position offset per second; I pay
+          <Eq>{'Q_{\\theta\\theta}'}</Eq> per unit² of pole tilt; …" Heavier weights say
+          "fix this one fast." <Eq>{'R'}</Eq> is the same for control effort: "I pay
+          <Eq>{'R'}</Eq> per unit² of force per second." A big <Eq>{'R'}</Eq> says "actuators
+          are expensive, go gentle."
+        </p>
+        <p>
+          The ratio <Eq>{'Q/R'}</Eq> is the single most important knob. Big ratio →
+          aggressive controller, big gains, fast settling but big <Eq>{'|u|'}</Eq>. Small
+          ratio → mild controller, small <Eq>{'|u|'}</Eq>, slow settling. The reason this
+          card matters is that reward design in RL is exactly this — but RL doesn’t give
+          you the closed-form back. You tune by training, not by Riccati.
+        </p>
+      </Intuition>
 
       <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2">Q diagonal · color-coded by weight</div>
       <div className="grid grid-cols-4 gap-2">
@@ -2317,13 +2569,47 @@ const KalmanCard = () => {
   return (
     <Card id="kalman" icon={Crosshair} title="Kalman observer" accent="violet" index={12}
           subtitle="The optimal recursive estimator for a linear plant in Gaussian noise. Lives in linear control AND in RL as the linear-Gaussian POMDP solution.">
-      <MinSchema>
-        Maintain a Gaussian belief <Eq>{'\\ob{(\\hat x, P)}'}</Eq>. Each step, <strong>predict</strong>
-        through the model, then <strong>update</strong> by mixing prediction with measurement, weighted
-        by their relative uncertainty.
-      </MinSchema>
+      <Intuition>
+        <p>
+          You’re navigating with a paper map plus a noisy GPS. Two ways to estimate where
+          you are: trust the map (extrapolate from your last position using how you’ve
+          moved), or trust the GPS (use the new reading). Both are wrong by some amount.
+          The smart answer is to combine them — <em>weighted by how much you trust each</em>.
+        </p>
+        <p>
+          That’s the Kalman filter in one sentence. At every time step:
+        </p>
+        <ol className="list-decimal pl-5 space-y-1 text-[13px]">
+          <li><strong>Predict</strong>: use the model to extrapolate where the state should
+            be now, based on the previous estimate and the control input you applied.</li>
+          <li><strong>Measure</strong>: take the sensor reading <Eq>{'y'}</Eq>.</li>
+          <li><strong>Update</strong>: blend prediction and measurement, weighted by which
+            you trust more <em>at this moment</em>. The weight is the <strong>Kalman gain</strong>
+            <Eq>{'L'}</Eq> — large when sensors are clean and predictions are uncertain,
+            small when sensors are noisy and the model is confident.</li>
+        </ol>
+        <p>
+          The belief about the state is a Gaussian — a mean <Eq>{'\\hat x'}</Eq> (your
+          best guess) plus a covariance <Eq>{'P'}</Eq> (how unsure you are, and in which
+          directions). After each step, both get updated. Magically, for linear plants in
+          Gaussian noise this is <em>provably the best estimator</em> — no other algorithm
+          can do better in expectation.
+        </p>
+      </Intuition>
 
       <Block>{'\\ob{\\hat x_{t|t}} = \\ob{\\hat x_{t|t-1}} + L_t\\big(y_t - C\\,\\ob{\\hat x_{t|t-1}}\\big),\\quad L_t = P_{t|t-1} C^\\top\\!\\big(C P_{t|t-1} C^\\top + Q_v\\big)^{-1}'}</Block>
+
+      <ReadEq>
+        The left side is the updated estimate. Read it: "new estimate = old prediction +
+        gain × surprise." The <strong>surprise</strong> is{' '}
+        <Eq>{'y_t - C\\,\\hat x_{t|t-1}'}</Eq> — what you actually measured minus what the
+        prediction said you’d measure. The <strong>gain</strong> <Eq>{'L_t'}</Eq> says how
+        much of that surprise to incorporate. Look at its formula: numerator is the
+        prediction covariance projected onto the measurement; denominator is that
+        projection plus sensor noise <Eq>{'Q_v'}</Eq>. If sensor noise is tiny, the gain
+        approaches 1 — fully trust the sensor. If sensor noise dominates, gain approaches
+        0 — fully trust the model. Everything in between is just optimal weighting.
+      </ReadEq>
 
       <p className="text-sm text-neutral-300">
         Plant: the cart-pole, LQR-stabilized. <strong>Sensor sees only cart position</strong> —
@@ -2453,12 +2739,35 @@ const LqgCard = () => {
   return (
     <Card id="lqg" icon={Split} title="LQG · separation theorem" accent="violet" index={13}
           subtitle="Design the LQR as if state were known. Design the Kalman observer as if no controller were present. The cascade is still optimal.">
-      <MinSchema>
-        For linear plants in Gaussian noise, <Term>LQG</Term> = LQR(<Eq>{'\\hat x'}</Eq>):
-        run the Kalman filter to get the state estimate, then apply <Eq>{'\\co{u} = -K\\,\\ob{\\hat x}'}</Eq>
-        with the same <Eq>{'K'}</Eq> as if you had the true state. This is the
-        <Term>separation theorem</Term>.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Here’s a problem that should be hard. Real plants have <strong>both</strong>{' '}
+          noise on the actuators (disturbances on the state) AND noise on the sensors (you
+          can’t directly see the state). You need to (a) <em>estimate</em> the state from
+          noisy measurements <em>while at the same time</em> (b) <em>control</em> the plant
+          using that estimate. The control affects the state, which affects what you
+          measure, which affects your estimate, which affects the control. Coupled mess.
+        </p>
+        <p>
+          Now the magic. <strong>Linear-Quadratic-Gaussian</strong> (LQG) says: if the
+          plant is linear, the cost is quadratic, and the noise is Gaussian, then the
+          coupled mess decouples. The <strong>separation theorem</strong>:
+        </p>
+        <ul className="list-disc pl-5 space-y-1 text-[13px]">
+          <li>Design the controller (the gain <Eq>{'K'}</Eq>) <em>as if</em> you had the
+            true state and no sensor noise. → LQR, card 10.</li>
+          <li>Design the estimator (the gain <Eq>{'L'}</Eq>) <em>as if</em> nobody was
+            controlling. → Kalman, card 12.</li>
+          <li>Glue them together: at each step, the Kalman gives you <Eq>{'\\hat x'}</Eq>;
+            the LQR applies <Eq>{'u = -K\\,\\hat x'}</Eq>.</li>
+        </ul>
+        <p>
+          The two-step design is <em>still optimal</em>. You did not pay for the decoupling.
+          This is one of the deepest results in all of control — Kalman 1960. It’s also
+          (card 21) one of the most fragile: tiny model mismatches break LQG’s robustness
+          guarantees in a way they don’t break LQR-with-true-state. That’s why H∞ exists.
+        </p>
+      </Intuition>
 
       <div className="flex flex-wrap items-center gap-2 mb-2">
         {[
@@ -2566,11 +2875,35 @@ const MpcCard = () => {
   return (
     <Card id="mpc" icon={Workflow} title="MPC · receding horizon" accent="emerald" index={14}
           subtitle="Plan N steps ahead with the model, apply only the first control, re-solve next tick. Handles actuator and state constraints natively.">
-      <MinSchema>
-        At each step <Eq>{'t'}</Eq>, solve
-        <Eq>{'\\min_{u_t,\\dots,u_{t+N-1}}\\sum_{k=0}^{N-1} \\ell(x_{t+k}, u_{t+k}) + V_f(x_{t+N})'}</Eq>
-        subject to dynamics and constraints. Apply <Eq>{'u_t'}</Eq>. Re-solve at <Eq>{'t+1'}</Eq>.
-      </MinSchema>
+      <Intuition>
+        <p>
+          When you drive, you don’t just react to where the road is right now. You look
+          ahead ten seconds, plan a steering trajectory for that whole window, then
+          execute the first second of it. A second later, you look ahead again and re-plan
+          — because the world has moved and your eyes have new information.
+        </p>
+        <p>
+          That’s <strong>Model Predictive Control</strong>:
+        </p>
+        <ol className="list-decimal pl-5 space-y-1 text-[13px]">
+          <li>From the current state, use the plant model to simulate the next{' '}
+            <Eq>{'N'}</Eq> steps under any candidate control sequence{' '}
+            <Eq>{'u_0, u_1, \\dots, u_{N-1}'}</Eq>.</li>
+          <li>Find the sequence that minimizes total cost over that window — subject to
+            constraints like "<Eq>{'|u| \\le u_{max}'}</Eq>" or "<Eq>{'|x| \\le x_{max}'}</Eq>".</li>
+          <li>Apply <em>only the first</em> control, <Eq>{'u_0'}</Eq>. Discard the rest.</li>
+          <li>One time step later, repeat — with the new measured state and a new horizon
+            shifted forward by one. Hence "receding horizon".</li>
+        </ol>
+        <p>
+          Two things MPC does that LQR can’t. <strong>(a) Constraints</strong>: an actuator
+          can only push so hard; LQR doesn’t know that and might "ask" for impossible
+          control — MPC has the limit baked into the optimization. <strong>(b)
+          Look-ahead</strong>: MPC sees a wall coming and turns early; LQR feedback only
+          knows the present. The cost? Solving an optimization problem at every time step,
+          not just multiplying by a fixed gain.
+        </p>
+      </Intuition>
 
       <div className="flex flex-wrap items-center gap-3 mb-2">
         <label className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono">
@@ -2712,15 +3045,50 @@ const HjbCard = () => {
   return (
     <Card id="hjb" icon={FunctionSquare} title="HJB ↔ Bellman" accent="fuchsia" index={15}
           subtitle="The Hamilton-Jacobi-Bellman PDE is the Bellman equation in the continuous-time limit. One value function unifies LQR, MPC, and RL.">
-      <MinSchema>
-        Discrete RL’s recursive optimality (Bellman) and continuous control’s PDE (HJB) are
-        the same statement at different time-resolutions.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Every problem in this explainer has a single mathematical object underneath:
+          the <strong>value function</strong> <Eq>{'V(x)'}</Eq>. It answers one question:
+          "if I’m in state <Eq>{'x'}</Eq> right now and I play optimally from here on,
+          what total cost will I incur?" Once you know <Eq>{'V'}</Eq>, you know the optimal
+          policy: at each state, take the action whose expected next-<Eq>{'V'}</Eq> is
+          smallest.
+        </p>
+        <p>
+          Two ways to write the equation that <Eq>{'V'}</Eq> must satisfy:
+        </p>
+        <ul className="list-disc pl-5 space-y-1 text-[13px]">
+          <li><strong>Bellman</strong> (left, discrete time): "value of state <Eq>{'x'}</Eq> =
+            minimum over actions of (immediate cost over one step + value of the next
+            state)." This is what RL is built on.</li>
+          <li><strong>HJB</strong> (right, continuous time): the same statement, but as a
+            partial differential equation about <Eq>{'V'}</Eq>’s gradient. Send the
+            step size <Eq>{'\\Delta t \\to 0'}</Eq> in Bellman and you get HJB.</li>
+        </ul>
+        <p>
+          For LQR, HJB has a known answer: <Eq>{'V(x) = x^\\top P x'}</Eq> where{' '}
+          <Eq>{'P'}</Eq> solves the Riccati equation (card 10). For nonlinear systems
+          there’s no closed form — you grid the state-space and iterate (the pendulum
+          heatmap below) or, in modern terms, train a neural network to approximate{' '}
+          <Eq>{'V'}</Eq> (that’s what deep RL does).
+        </p>
+      </Intuition>
 
       <div className="grid md:grid-cols-2 gap-2">
         <Block>{'V(\\sk{x}) = \\min_{\\co{u}} \\big[\\, \\cs{\\ell(\\sk{x},\\co{u})}\\,\\Delta t + \\gamma\\, V(\\sk{x}\\!+\\!f(\\sk{x},\\co{u})\\Delta t) \\,\\big]'}</Block>
         <Block>{'\\min_{\\co{u}} \\Big\\{ \\cs{\\ell(\\sk{x},\\co{u})} + \\nabla V(\\sk{x})^\\top f(\\sk{x},\\co{u}) \\Big\\} = 0'}</Block>
       </div>
+
+      <ReadEq>
+        Left (Bellman): the value of any state is the minimum, over actions you could take,
+        of <em>(instant cost for one step) + (discounted value of the resulting next
+        state)</em>. Right (HJB): the same idea, but in the continuous-time limit
+        <Eq>{'\\Delta t \\to 0'}</Eq>, the difference <Eq>{'V(x + f\\Delta t) - V(x)'}</Eq>{' '}
+        becomes <Eq>{'\\nabla V \\cdot f \\cdot \\Delta t'}</Eq>, the discount <Eq>{'\\gamma'}</Eq>{' '}
+        becomes 1 minus a tiny number, and after cancelling you get a PDE saying "the
+        minimum over actions of (instant cost + value gradient · velocity) = 0." Same
+        statement, two languages.
+      </ReadEq>
       <p className="text-sm text-neutral-300">
         Send <Eq>{'\\Delta t \\to 0'}</Eq>: the discrete Bellman (left, with discount
         <Eq>{'\\gamma=1-\\rho\\Delta t'}</Eq>) collapses to the continuous HJB (right). Same
@@ -2867,12 +3235,34 @@ const MppiCard = () => {
   return (
     <Card id="mppi" icon={Shuffle} title="MPPI · sampling MPC" accent="emerald" index={16}
           subtitle="Sample K control sequences from a Gaussian around the nominal plan, weight by exp(−cost/λ), take the weighted mean. Same loop the model-based RL community uses.">
-      <MinSchema>
-        At each step <Eq>{'t'}</Eq>: draw <Eq>{'K'}</Eq> trajectory perturbations
-        <Eq>{'\\delta u_k \\sim \\mathcal N(0, \\Sigma)'}</Eq>, score by rollout cost
-        <Eq>{'J_k'}</Eq>, weight by <Eq>{'w_k \\propto e^{-J_k/\\lambda}'}</Eq>, set
-        <Eq>{'u^* = \\sum_k w_k\\, u_k'}</Eq>. Apply the first sample, repeat.
-      </MinSchema>
+      <Intuition>
+        <p>
+          MPC (card 14) solves an optimization at every step. That’s easy for linear-quadratic
+          problems but expensive — sometimes intractable — when the dynamics or cost are
+          nonlinear. What if instead of optimizing, you just <em>guessed</em> a bunch of
+          control sequences and picked the best-weighted average?
+        </p>
+        <p>
+          That’s MPPI in one sentence:
+        </p>
+        <ol className="list-decimal pl-5 space-y-1 text-[13px]">
+          <li>Take your current best-guess control sequence (the "nominal" plan).</li>
+          <li>Sprinkle Gaussian noise on it <Eq>{'K'}</Eq> times → <Eq>{'K'}</Eq> candidate
+            trajectories.</li>
+          <li>For each candidate, roll out the model forward, compute total cost
+            <Eq>{'J_k'}</Eq>.</li>
+          <li>Weight each candidate by <Eq>{'e^{-J_k/\\lambda}'}</Eq> — exponentially favor
+            the cheap ones. <Eq>{'\\lambda'}</Eq> is a temperature: small <Eq>{'\\lambda'}</Eq>{' '}
+            picks the best aggressively; large <Eq>{'\\lambda'}</Eq> averages broadly.</li>
+          <li>The new control sequence is the weighted average. Apply the first step,
+            shift, repeat.</li>
+        </ol>
+        <p>
+          No gradient, no QP solver — just rollouts and exponential weighting. The same
+          loop appears in model-based RL (PETS, PlaNet, Dreamer) under different names.
+          What changes is whether the model is given (MPPI) or learned (model-based RL).
+        </p>
+      </Intuition>
 
       <div className="grid grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 text-[10px] text-neutral-400 font-mono">
@@ -3004,12 +3394,40 @@ const SysIdCard = () => {
   return (
     <Card id="sysid" icon={BrainCircuit} title="System identification" accent="violet" index={17}
           subtitle="Fit (A, B) from N rollout samples. Sysid is to MPC what model learning is to model-based RL.">
-      <MinSchema>
-        Given <Eq>{'\\{(\\sk{x_t}, \\co{u_t}, \\sk{x_{t+1}})\\}_{t=1}^N'}</Eq> from an
-        excited rollout, solve
-      </MinSchema>
+      <Intuition>
+        <p>
+          All the cards so far assumed we <em>know</em> the plant matrices <Eq>{'A, B'}</Eq>.
+          For textbook examples (cart-pole, RC circuit) we wrote them down from physics.
+          For a real robot or industrial process, you don’t get them for free — you have
+          to fit them from data.
+        </p>
+        <p>
+          The data: rollouts. Record many triples <Eq>{'(x_t, u_t, x_{t+1})'}</Eq>. The
+          state at time <Eq>{'t'}</Eq>, the control you applied, the state one step later.
+          If the true dynamics are <Eq>{'x_{t+1} = A x_t + B u_t + \\text{noise}'}</Eq>,
+          then you have <Eq>{'N'}</Eq> noisy observations of a linear relationship — fit it
+          with <strong>least squares</strong> (same machinery as linear regression you learned
+          in stats class).
+        </p>
+        <p>
+          One subtle requirement: the control inputs must <strong>excite</strong> all the
+          modes you want to identify. If you only ever push the cart left, you’ll never
+          identify the pole’s rightward response. The technical name is "persistent
+          excitation"; in practice it means feeding random or pseudo-random control during
+          the data-collection phase.
+        </p>
+      </Intuition>
 
       <Block>{'\\big[\\,\\widehat{\\bm A}\\ \\widehat{\\bm B}\\,\\big] = \\arg\\min \\sum_t \\big\\| \\sk{x_{t+1}} - \\bm A\\sk{x_t} - \\bm B\\co{u_t}\\big\\|^2 = \\big(X_{t+1}^\\top Z\\big)\\big(Z^\\top Z\\big)^{-1},\\ \\ Z = [X_t \\ \\ U]'}</Block>
+
+      <ReadEq>
+        Left side: pick the matrices <Eq>{'\\hat A, \\hat B'}</Eq> that minimize the total
+        squared prediction error over all samples. Right side: the closed-form least-squares
+        solution — stack states and controls into a big design matrix <Eq>{'Z'}</Eq>, compute
+        <Eq>{'(X^\\top Z)(Z^\\top Z)^{-1}'}</Eq>. This is the same formula as ordinary linear
+        regression. Numerical noise on <Eq>{'x_{t+1}'}</Eq> shows up as estimation error
+        in <Eq>{'\\hat A, \\hat B'}</Eq>; more samples shrinks it as <Eq>{'1/\\sqrt N'}</Eq>.
+      </ReadEq>
 
       <div className="flex flex-wrap items-center gap-3 mb-2">
         <label className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono">
@@ -3145,13 +3563,50 @@ const NonlinearCard = () => {
   return (
     <Card id="nonlinear" icon={GitBranch} title="Nonlinear · Lyapunov & swing-up" accent="cyan" index={18}
           subtitle="When the linearization doesn’t cover the operating region — swing the pendulum from rest at the bottom, then catch it at the top.">
-      <MinSchema>
-        Two regions, two controllers. <strong>Energy shaping</strong> drives the system
-        toward the goal energy <Eq>{'E_g'}</Eq> on the way up. <strong>LQR catch</strong>
-        takes over inside the linearization basin near the top.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Take a real pendulum hanging straight down. Try to drive it up to balance
+          inverted at the top, but the motor isn’t strong enough to lift it directly. What
+          do you do? You <em>pump</em> it — push at the right moments so each swing goes
+          a little higher, like a kid on a playground swing.
+        </p>
+        <p>
+          That can’t come from LQR alone. LQR is designed around <em>one</em> equilibrium
+          (here, the top) and only works in a small neighborhood. At the bottom, the
+          linearization LQR uses is wildly wrong about the actual physics.
+        </p>
+        <p>
+          The classical recipe: <strong>two controllers, stitched together</strong>.
+        </p>
+        <ul className="list-disc pl-5 space-y-1 text-[13px]">
+          <li><strong>Energy shaping</strong> at large angles. Compute the pendulum’s total
+            energy (kinetic + potential). The goal is the energy of standing at the top
+            with zero velocity. If you’re below that energy, pump in. If above, drain.
+            This is provably correct by a <strong>Lyapunov function</strong>: pick
+            <Eq>{'V = (E - E_g)^2 / 2'}</Eq>, show <Eq>{'\\dot V \\le 0'}</Eq> under your
+            controller, and you’ve proven the system reaches the right energy level.</li>
+          <li><strong>LQR catch</strong> near the top. Once the pendulum is close enough
+            to vertical (inside the linearization basin), switch to the LQR controller and
+            balance.</li>
+        </ul>
+        <p>
+          Below: the pendulum starts at rest, swings back and forth gaining energy, then
+          gets caught at the top. The phase portrait shows the spiral path through state
+          space.
+        </p>
+      </Intuition>
 
       <Block>{'E(\\theta, \\dot\\theta) = \\tfrac12 \\dot\\theta^2 + g(1 - \\cos\\theta), \\quad \\co{u} = \\co{k_e}\\,(E_g - E)\\,\\mathrm{sign}(\\dot\\theta \\cos\\theta)'}</Block>
+
+      <ReadEq>
+        Left: energy of the pendulum = ½ × angular-velocity² + gravity × (1 − cos angle).
+        At the bottom <Eq>{'\\theta = 0'}</Eq> and rest, <Eq>{'E = 0'}</Eq>. At the top
+        <Eq>{'\\theta = \\pi'}</Eq> with rest, <Eq>{'E = 2g'}</Eq> (the goal energy
+        <Eq>{'E_g'}</Eq>). Right: the energy-shaping control. <Eq>{'(E_g - E)'}</Eq> is the
+        <em>energy deficit</em>; <Eq>{'\\dot\\theta \\cos\\theta'}</Eq> says which direction
+        to push so that pushing now adds energy (you push along the swing’s motion, not
+        against it). Multiply by a gain <Eq>{'k_e'}</Eq> and you have the pump.
+      </ReadEq>
 
       <div className="flex items-center gap-2 mb-2">
         <button onClick={() => setPlaying(p => !p)} className="text-[10px] font-mono px-2 py-0.5 rounded border border-white/15 bg-white/[0.04] text-neutral-300">{playing ? 'pause' : 'play'}</button>
@@ -3280,11 +3735,39 @@ const BridgeCard = () => {
   return (
     <Card id="bridge" icon={GitFork} title="★ LQR ↔ policy gradients" accent="fuchsia" index={19} anchor
           subtitle="Riccati solves the LQ problem in one matrix equation. Policy gradient finds the same K by sampling. They’re the same problem.">
-      <MinSchema>
-        Linear policy <Eq>{'\\co{\\pi_\\theta}(\\sk{x}) = -K\\sk{x} + \\sigma\\,\\epsilon'}</Eq>.
-        REINFORCE update: <Eq>{'\\Delta K = \\alpha\\,\\mathbb E\\big[\\nabla_K \\log \\co{\\pi_\\theta}(u|x)\\,(b - J)\\big]'}</Eq>.
-        Converges to the same <Eq>{'K^*'}</Eq> as the Riccati equation.
-      </MinSchema>
+      <Intuition>
+        <p>
+          This card is the whole point of the explainer. Two completely different traditions —
+          1960s linear control and 2010s deep RL — show up at the <em>exact same gain matrix
+          <Eq>{'K'}</Eq></em>. From wildly different directions.
+        </p>
+        <p>
+          <strong>LQR’s route</strong> (card 10): write down the cost, plug into the Riccati
+          equation, solve once with linear algebra. You get <Eq>{'K'}</Eq>. One step. No
+          rollouts. Done.
+        </p>
+        <p>
+          <strong>Policy gradient’s route</strong>: start with a random gain <Eq>{'K_0'}</Eq>.
+          Run the policy for an episode (add a little exploration noise so you can measure
+          gradients). Compute the episode’s total cost. Take a small step in the direction
+          that — based on the noisy exploration — looks like it would lower the cost. The
+          algorithm is REINFORCE; the step rule is:
+        </p>
+        <Block>{'\\Delta K = -\\alpha\\,\\mathbb E\\big[\\,(\\,J - b\\,)\\,\\nabla_K \\log \\pi_K(u\\,|\\,x)\\,\\big]'}</Block>
+        <p>
+          Read it: "tweak <Eq>{'K'}</Eq> in proportion to how much worse this episode was
+          than the baseline <Eq>{'b'}</Eq>, weighted by how surprising the actions you took
+          would be if <Eq>{'K'}</Eq> were already at its new value." Do this thousands of
+          times and (slowly!) you converge to the same <Eq>{'K^*'}</Eq> the Riccati equation
+          gives in one step.
+        </p>
+        <p>
+          So why bother with PG if Riccati is faster? <strong>Because Riccati only works
+          when the problem is linear-quadratic.</strong> Nonlinear dynamics, non-quadratic
+          cost, hidden state, neural-net policy? Riccati can’t help. PG can. That’s the
+          trade RL inherits.
+        </p>
+      </Intuition>
 
       <div className="grid md:grid-cols-2 gap-3">
         <div className="rounded-lg border border-emerald-400/30 bg-neutral-950/40 p-3">
@@ -3458,12 +3941,32 @@ const BeliefCard = () => {
   return (
     <Card id="belief" icon={Network} title="Observer ↔ belief states" accent="violet" index={20}
           subtitle="The Kalman filter IS the linear-Gaussian POMDP belief update. Break Gaussianity and you need a particle filter (or a neural belief encoder).">
-      <MinSchema>
-        A <Term>POMDP</Term> agent doesn’t see the state — only an observation. The optimal
-        policy depends on the <Term>belief state</Term>: the posterior over true state given
-        the observation history. For linear-Gaussian dynamics, the belief is exactly a
-        Gaussian → Kalman.
-      </MinSchema>
+      <Intuition>
+        <p>
+          RL has a name for "I can’t see the full state, only observations of it":
+          <strong> POMDP</strong> (Partially-Observable Markov Decision Process). In a
+          POMDP, the optimal action doesn’t depend on the state (you don’t see it) — it
+          depends on your <strong>belief</strong> about the state, given everything you’ve
+          observed so far. The belief is a probability distribution over possible true
+          states.
+        </p>
+        <p>
+          For linear plants in Gaussian noise, the belief is exactly a Gaussian, and the
+          recipe to keep it up to date is exactly the Kalman filter (card 12). So in the
+          linear-Gaussian special case, the deep-RL concept "belief state" and the
+          control-theory concept "Kalman observer" are <em>the same object</em>.
+        </p>
+        <p>
+          When does the Kalman fail? When the noise has fat tails — outliers,
+          measurement glitches, anything non-Gaussian. The Kalman update gives equal
+          weight to a single huge outlier as to a long stretch of clean measurements, and
+          a few outliers can pull <Eq>{'\\hat x'}</Eq> wildly off. The robust alternative
+          is a <strong>particle filter</strong>: represent the belief by many particles,
+          each weighted by likelihood. Particles that suddenly become unlikely (because of
+          an outlier with a heavy-tailed likelihood model) get downweighted but not
+          eliminated — so the belief doesn’t lurch.
+        </p>
+      </Intuition>
 
       <div className="flex flex-wrap items-center gap-3 mb-2">
         <label className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono">
@@ -3574,12 +4077,35 @@ const RobustCard = () => {
   return (
     <Card id="robust" icon={ShieldAlert} title="Robust ↔ sim-to-real" accent="rose" index={21}
           subtitle="H∞ plans for the worst-case plant in a bounded set. Domain randomization trains across a distribution. Same shape, different names.">
-      <MinSchema>
-        The model is wrong by some amount <Eq>{'\\delta'}</Eq>. <strong>Nominal LQR</strong>
-        optimizes for one A; <strong>robust control</strong> optimizes for the worst A in a
-        ball; <strong>domain-randomized RL</strong> trains on a distribution of As. Plot
-        cost vs δ for each.
-      </MinSchema>
+      <Intuition>
+        <p>
+          Every controller in this explainer was designed assuming we know the plant
+          exactly. We don’t. Real masses are off by a few percent, real motors are not
+          quite linear, real gears have backlash. The honest question: when the real plant
+          differs from the model we designed for, does the controller still work?
+        </p>
+        <p>
+          Three traditions, same question, different answers:
+        </p>
+        <ul className="list-disc pl-5 space-y-1 text-[13px]">
+          <li><strong>Nominal LQR (card 10)</strong>: optimize for ONE specific model. Hope
+            the real plant is close to it. When it isn’t — well, was nice while it lasted.</li>
+          <li><strong>Robust control / H∞</strong>: optimize for the <em>worst-case</em>
+            plant within a known uncertainty ball around nominal. You give up some
+            performance on the nominal model in exchange for surviving the worst case.</li>
+          <li><strong>Sim-to-real / domain randomization (RL)</strong>: train on many
+            randomly-perturbed copies of the model — different gravity, friction, masses —
+            and learn a policy that does well in expectation over all of them. The RL
+            cousin of H∞, with a distribution instead of a ball.</li>
+        </ul>
+        <p>
+          Below: same cart-pole, swept across a range of gravity errors (model says
+          <Eq>{'g = 9.81'}</Eq>, reality might be <Eq>{'g(1 + \\delta)'}</Eq>). Nominal LQR
+          tracks well near zero error but cost climbs at the extremes. A more conservative
+          design — call it the robust LQR — costs more at zero but degrades more
+          gracefully. That trade-off is the whole game.
+        </p>
+      </Intuition>
 
       <div className="rounded-lg border border-rose-400/30 bg-neutral-950/40 p-3">
         <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono mb-1">
