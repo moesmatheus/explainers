@@ -15,7 +15,9 @@ export default defineConfig(({ command }) => {
     base,
     plugins: [react(), tailwindcss()],
     server: {
-      port: 5173,
+      // Honor a PORT env var when set (the preview harness assigns a free port
+      // this way); otherwise default to 5173 for a clean local `npm run dev`.
+      port: process.env.PORT ? Number(process.env.PORT) : 5173,
       host: true,
       // .tools/ holds shared developer tooling (e.g. the Manim venv + render
       // cache). Excluding it keeps Vite's watcher and CSS asset resolver from

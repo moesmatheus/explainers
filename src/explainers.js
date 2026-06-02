@@ -6,6 +6,7 @@ import ControlTheoryExplainer from '../control-theory/ControlTheoryExplainer.jsx
 import DataCentersExplainer from '../data-centers/DataCentersExplainer.jsx';
 import DataCentersV2Explainer from '../data-centers-v2/DataCentersV2Explainer.jsx';
 import DataCentersBrExplainer from '../data-centers-br/DataCentersBrExplainer.jsx';
+import DecisionTheoryExplainer from '../decision-theory/DecisionTheoryExplainer.jsx';
 import DeepSeekV4Explainer from '../deepseek-v4/DeepSeekV4Explainer.jsx';
 import ForecastersCraftExplainer from '../forecasters-craft/ForecastersCraftExplainer.jsx';
 import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx';
@@ -202,5 +203,13 @@ export const explainers = [
       'The math of feedback — and the predecessor to RL. State-space dynamics, PID, stability, LQR, Kalman, LQG, MPC, HJB. Anchored on cart-pole and the explicit bridge from Riccati’s closed-form K to policy gradients finding the same K by descent.',
     tags: ['control', 'interactive', 'equations'],
     component: ControlTheoryExplainer,
+  },
+  {
+    slug: 'decision-theory',
+    title: 'Decision Theory',
+    blurb:
+      'How to choose well when you control the act but not the outcome — preferences & utility, the von Neumann–Morgenstern axioms, risk vs uncertainty, Bayesian & statistical decision theory, the behavioral departures (Allais, Ellsberg, prospect theory), and the frontier (causal vs evidential, Arrow, the game-theory boundary). Anchored on the career bet: a sure salary vs. startup equity.',
+    tags: ['decision-making', 'interactive', 'equations'],
+    component: DecisionTheoryExplainer,
   },
 ];
