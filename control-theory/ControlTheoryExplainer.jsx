@@ -845,6 +845,199 @@ const ComplexPlane = ({ poles, width = 220, height = 200, maxAbs = 4, hl = null 
   );
 };
 
+/* ---- shared: phase portrait (vector field + animated trajectories) ---- */
+
+const PhasePortrait = ({ phase, width = 380, height = 280, framesPerTraj = 90 }) => {
+  // Compute trajectories once per (phase config)
+  const trajectories = useMemo(() => {
+    if (phase.type !== 'plane') return null;
+    const dt = 0.04;
+    return phase.initials.map(([x0, y0]) => {
+      const xs = [[x0, y0]];
+      let x = x0, y = y0;
+      for (let t = 0; t < framesPerTraj; t++) {
+        // RK4 in 2D
+        const [k1x, k1y] = phase.deriv(x, y);
+        const [k2x, k2y] = phase.deriv(x + 0.5 * dt * k1x, y + 0.5 * dt * k1y);
+        const [k3x, k3y] = phase.deriv(x + 0.5 * dt * k2x, y + 0.5 * dt * k2y);
+        const [k4x, k4y] = phase.deriv(x + dt * k3x, y + dt * k3y);
+        x = x + (dt / 6) * (k1x + 2 * k2x + 2 * k3x + k4x);
+        y = y + (dt / 6) * (k1y + 2 * k2y + 2 * k3y + k4y);
+        // clamp if blowing up out of frame
+        const [xmin, xmax] = phase.xRange;
+        const [ymin, ymax] = phase.yRange;
+        if (x < xmin * 1.4 || x > xmax * 1.4 || y < ymin * 1.4 || y > ymax * 1.4) {
+          // pad with last position so animation length matches
+          for (let pad = t; pad < framesPerTraj; pad++) xs.push([xs[xs.length - 1][0], xs[xs.length - 1][1]]);
+          break;
+        }
+        xs.push([x, y]);
+      }
+      return xs;
+    });
+  }, [phase, framesPerTraj]);
+
+  // Vector field grid (computed once)
+  const grid = useMemo(() => {
+    if (phase.type !== 'plane') return null;
+    const NX = 13, NY = 11;
+    const [xmin, xmax] = phase.xRange;
+    const [ymin, ymax] = phase.yRange;
+    const dx = (xmax - xmin) / (NX - 1);
+    const dy = (ymax - ymin) / (NY - 1);
+    const cells = [];
+    let maxMag = 1e-6;
+    for (let i = 0; i < NX; i++) {
+      for (let j = 0; j < NY; j++) {
+        const x = xmin + i * dx;
+        const y = ymin + j * dy;
+        const [vx, vy] = phase.deriv(x, y);
+        const mag = Math.hypot(vx, vy);
+        if (mag > maxMag) maxMag = mag;
+        cells.push({ x, y, vx, vy, mag });
+      }
+    }
+    return { cells, maxMag };
+  }, [phase]);
+
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(1);
+
+  useEffect(() => {
+    setIdx(0);
+  }, [phase]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => setIdx(i => (i + 1) % framesPerTraj), Math.max(20, 1000 * 0.04 / speed));
+    return () => clearInterval(id);
+  }, [playing, speed, phase, framesPerTraj]);
+
+  // ----- 1D-time variant for thermal -----
+  if (phase.type === 'time') {
+    const W = width, H = height;
+    const padL = 36, padR = 12, padT = 14, padB = 28;
+    const T = phase.tMax;
+    const ts = [];
+    for (let t = 0; t <= T; t += 4) ts.push(t);
+    const ymax = Math.max(...phase.initials.map(Math.abs));
+    const sx = (t) => padL + (t / T) * (W - padL - padR);
+    const sy = (y) => padT + (1 - (y + ymax) / (2 * ymax)) * (H - padT - padB);
+    const colors = ['#7dd3fc', '#c4b5fd', '#f0abfc', '#fde68a'];
+    return (
+      <div>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+          <line x1={padL} y1={sy(0)} x2={W - padR} y2={sy(0)} stroke="rgba(255,255,255,0.25)" />
+          <text x={padL - 4} y={sy(ymax) + 3} fontSize="8" fill="rgba(255,255,255,0.5)" textAnchor="end" fontFamily="ui-monospace, monospace">+{ymax.toFixed(0)}°</text>
+          <text x={padL - 4} y={sy(0) + 3} fontSize="8" fill="rgba(255,255,255,0.5)" textAnchor="end" fontFamily="ui-monospace, monospace">0</text>
+          <text x={padL - 4} y={sy(-ymax) + 3} fontSize="8" fill="rgba(255,255,255,0.5)" textAnchor="end" fontFamily="ui-monospace, monospace">−{ymax.toFixed(0)}°</text>
+          {phase.initials.map((x0, i) => {
+            const pts = ts.map(t => `${sx(t)},${sy(x0 * Math.exp(phase.lambda * t))}`).join(' ');
+            return <polyline key={i} fill="none" stroke={colors[i % colors.length]} strokeWidth="1.4" points={pts} />;
+          })}
+          <text x={(padL + W - padR) / 2} y={H - 6} fontSize="9" fill="rgba(255,255,255,0.5)" textAnchor="middle" fontFamily="ui-monospace, monospace">t (seconds)  ·  x(t) = x₀ · e^{`{${phase.lambda} t}`}</text>
+        </svg>
+        <div className="text-[10px] font-mono mt-1" style={{ color: phase.verdictColor }}>{phase.verdict}</div>
+      </div>
+    );
+  }
+
+  // ----- 2D phase plane -----
+  const W = width, H = height;
+  const padL = 38, padR = 14, padT = 14, padB = 28;
+  const [xmin, xmax] = phase.xRange;
+  const [ymin, ymax] = phase.yRange;
+  const sx = (x) => padL + ((x - xmin) / (xmax - xmin)) * (W - padL - padR);
+  const sy = (y) => padT + (1 - (y - ymin) / (ymax - ymin)) * (H - padT - padB);
+  const ARR_LEN = 13;
+  const trajColors = ['#7dd3fc', '#c4b5fd', '#f0abfc', '#fde68a', '#6ee7b7', '#fb923c'];
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={() => setPlaying(p => !p)} className="text-[10px] font-mono px-2 py-0.5 rounded border border-white/15 bg-white/[0.04] text-neutral-300">{playing ? 'pause' : 'play'}</button>
+        <button onClick={() => setIdx(0)} className="text-[10px] font-mono px-2 py-0.5 rounded border border-white/15 bg-white/[0.04] text-neutral-300">reset</button>
+        <label className="flex items-center gap-1 text-[10px] text-neutral-500 font-mono">
+          speed
+          <input type="range" min="0.25" max="3" step="0.25" value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} className="ct-range w-16" />
+          <span className="tabular-nums">{speed.toFixed(2)}×</span>
+        </label>
+        <span className="text-[10px] text-neutral-500 font-mono ml-2">t = {(idx * 0.04).toFixed(2)}s</span>
+      </div>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+        {/* axes */}
+        <line x1={padL} y1={sy(0)} x2={W - padR} y2={sy(0)} stroke="rgba(255,255,255,0.20)" />
+        <line x1={sx(0)} y1={padT} x2={sx(0)} y2={H - padB} stroke="rgba(255,255,255,0.20)" />
+        <text x={W - padR + 2} y={sy(0) - 4} fontSize="9" fill="rgba(255,255,255,0.45)" textAnchor="end" fontFamily="ui-monospace, monospace">{phase.xLabel}</text>
+        <text x={sx(0) + 4} y={padT + 9} fontSize="9" fill="rgba(255,255,255,0.45)" fontFamily="ui-monospace, monospace">{phase.yLabel}</text>
+
+        {/* eigenvector lines (only for cart-pole) */}
+        {phase.eigenLines && phase.eigenLines.map((ev, i) => {
+          // line through origin with slope ev.slope; clip to viewbox
+          const x1 = xmin, x2 = xmax;
+          let y1 = ev.slope * x1, y2 = ev.slope * x2;
+          if (y1 < ymin) { y1 = ymin; }
+          if (y1 > ymax) { y1 = ymax; }
+          if (y2 < ymin) { y2 = ymin; }
+          if (y2 > ymax) { y2 = ymax; }
+          return (
+            <g key={`ev-${i}`}>
+              <line x1={sx(x1)} y1={sy(y1)} x2={sx(x2)} y2={sy(y2)}
+                stroke={ev.color} strokeOpacity="0.55" strokeWidth="1.2" strokeDasharray="5 3" />
+              <text x={sx(x2 * 0.85)} y={sy(y2 * 0.85) - 4}
+                fontSize="9" fill={ev.color} textAnchor="end" fontFamily="ui-monospace, monospace">{ev.label}</text>
+            </g>
+          );
+        })}
+
+        {/* vector field */}
+        {grid.cells.map((c, i) => {
+          const x0 = sx(c.x), y0 = sy(c.y);
+          const u = c.vx / Math.max(1e-9, grid.maxMag);
+          const v = c.vy / Math.max(1e-9, grid.maxMag);
+          // small arrow, fixed visual length scaled by magnitude
+          const norm = Math.hypot(u, v);
+          const len = ARR_LEN * (0.35 + 0.65 * norm);
+          const ux = u / Math.max(1e-9, norm);
+          const uy = v / Math.max(1e-9, norm);
+          const x1 = x0 + ux * len, y1 = y0 - uy * len;   // flip y for screen
+          const arrSize = 2.2;
+          // perpendicular for arrowhead
+          const px = -uy * arrSize, py = -ux * arrSize;
+          return (
+            <g key={`arr-${i}`} opacity={0.35 + 0.45 * norm}>
+              <line x1={x0} y1={y0} x2={x1} y2={y1} stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" />
+              <polygon
+                points={`${x1},${y1} ${x1 - ux * arrSize + px},${y1 + uy * arrSize + py} ${x1 - ux * arrSize - px},${y1 + uy * arrSize - py}`}
+                fill="rgba(255,255,255,0.55)" />
+            </g>
+          );
+        })}
+
+        {/* trajectories (animated up to idx) */}
+        {trajectories.map((traj, ti) => {
+          const upTo = Math.min(idx + 1, traj.length);
+          const pts = traj.slice(0, upTo).map(([x, y]) => `${sx(x)},${sy(y)}`).join(' ');
+          const head = traj[upTo - 1];
+          const c = trajColors[ti % trajColors.length];
+          return (
+            <g key={`tj-${ti}`}>
+              <polyline fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" points={pts} opacity="0.9" />
+              <circle cx={sx(traj[0][0])} cy={sy(traj[0][1])} r="2" fill={c} opacity="0.4" />
+              {head && <circle cx={sx(head[0])} cy={sy(head[1])} r="3" fill={c} />}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex items-center justify-between mt-1">
+        <div className="text-[10px] font-mono" style={{ color: phase.verdictColor }}>{phase.verdict}</div>
+        {phase.sliceNote && <div className="text-[10px] text-neutral-500 font-mono">{phase.sliceNote}</div>}
+      </div>
+    </div>
+  );
+};
+
 /* ---- shared: catalog of three example plants ---- */
 
 const PLANTS = [
@@ -856,6 +1049,26 @@ const PLANTS = [
     Btex: '\\bm{B} = \\begin{pmatrix} 0 \\\\ 1 \\\\ 0 \\\\ -1 \\end{pmatrix}',
     poles: [{ re: 0, im: 0, mult: 2 }, { re: 3.285, im: 0 }, { re: -3.285, im: 0 }],
     note: 'Two zero modes (cart position and velocity have no restoring force) plus a symmetric ±3.28 pair from the inverted pendulum. The +3.28 pole is the unstable mode — without feedback the angle grows like e^{3.28 t}.',
+    phase: {
+      type: 'plane',
+      xLabel: 'θ', yLabel: 'θ̇',
+      xRange: [-1.2, 1.2], yRange: [-4.5, 4.5],
+      sliceNote: '(slice: x_cart = 0, ẋ_cart = 0)',
+      verdict: 'SADDLE · one stable, one unstable direction',
+      verdictColor: '#fb7185',
+      // d/dt(θ, θ̇) at slice with u = 0
+      deriv: (theta, w) => [w, 10.791 * theta],
+      // sample initial conditions for trajectories
+      initials: [
+        [0.5, 0.1], [-0.5, -0.1], [0.1, 2.0], [-0.1, -2.0],
+        [0.8, -2.5], [-0.8, 2.5],
+      ],
+      // eigenvector overlay: lines through origin
+      eigenLines: [
+        { slope:  3.285, color: '#fb7185', label: 'λ = +3.28 · unstable' },
+        { slope: -3.285, color: '#6ee7b7', label: 'λ = −3.28 · stable' },
+      ],
+    },
   },
   {
     id: 'thermal', name: 'RC thermal · one-room',
@@ -865,6 +1078,15 @@ const PLANTS = [
     Btex: '\\bm{B} = \\begin{pmatrix} 0.01 \\end{pmatrix}',
     poles: [{ re: -0.01, im: 0 }],
     note: 'A single stable pole at −0.01 rad/s (100-second time constant). The room cools toward ambient on its own — control is about tracking a set-point, not about stabilization.',
+    phase: {
+      type: 'time',
+      verdict: 'PURE EXPONENTIAL DECAY · one negative real eigenvalue',
+      verdictColor: '#6ee7b7',
+      // single-state: dx/dt = -0.01 x (no input). Show x(t) for several initial conditions.
+      lambda: -0.01,
+      tMax: 400,
+      initials: [10, 5, -3, -7],
+    },
   },
   {
     id: 'mass2', name: 'Two masses + spring + damper',
@@ -874,6 +1096,20 @@ const PLANTS = [
     Btex: '\\bm{B} = \\begin{pmatrix} 0 \\\\ 1 \\\\ 0 \\\\ 0 \\end{pmatrix}',
     poles: [{ re: 0, im: 0, mult: 2 }, { re: -0.5, im: 2.78 }, { re: -0.5, im: -2.78 }],
     note: 'A double pole at the origin — the rigid-body mode (the chain of masses can drift freely) — plus a damped oscillation at ≈2.78 rad/s with light damping ratio ≈0.18.',
+    phase: {
+      type: 'plane',
+      xLabel: 'x₁ − x₂', yLabel: 'ẋ₁ − ẋ₂',
+      xRange: [-2, 2], yRange: [-4, 4],
+      sliceNote: '(relative-coordinate slice · centre-of-mass frozen at 0)',
+      verdict: 'STABLE SPIRAL · trajectories curl inward to origin',
+      verdictColor: '#6ee7b7',
+      // Relative coord r = x1-x2: r̈ + ṙ + 8r = 0
+      deriv: (r, rdot) => [rdot, -8 * r - rdot],
+      initials: [
+        [1.5, 0], [-1.5, 0], [0, 2.5], [0, -2.5], [1.2, 2], [-1.2, -2],
+      ],
+      eigenLines: [],
+    },
   },
 ];
 
@@ -1079,10 +1315,26 @@ const DynamicsCard = () => {
           <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-1">eigenvalues of A</div>
           <ComplexPlane poles={plant.poles} width={220} height={200}
             maxAbs={plant.id === 'thermal' ? 0.04 : 4} />
+          <div className="text-[10px] text-neutral-500 font-mono mt-1">
+            "<em>where</em> the eigenvalues live"
+          </div>
         </div>
       </div>
 
       <p className="text-sm text-neutral-300 mt-2">{plant.note}</p>
+
+      <div className="rounded-lg border border-cyan-400/20 bg-neutral-950/40 p-3 mt-3">
+        <div className="flex items-baseline justify-between mb-1">
+          <div className="text-[10px] uppercase tracking-widest text-cyan-300">phase portrait · what those eigenvalues actually <em>do</em></div>
+        </div>
+        <p className="text-[12px] text-neutral-400 leading-relaxed mb-2">
+          Take a grid of points in the state-space and at each point draw an arrow showing
+          which way the state moves next (that’s <Eq>{'\\dot x = Ax'}</Eq> with no input).
+          Drop a few initial conditions in and watch them flow. The eigenvalues set the{' '}
+          <em>shape</em> of the flow — outward saddle, spiral, decay — and now you can see it.
+        </p>
+        <PhasePortrait phase={plant.phase} width={380} height={260} />
+      </div>
 
       <Misconception
         wrong="The matrices A, B come from the physics — they’re given."
