@@ -12,6 +12,7 @@ import ForecastersCraftExplainer from '../forecasters-craft/ForecastersCraftExpl
 import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx';
 import MachineLearningExplainer from '../machine-learning/MachineLearningExplainer.jsx';
 import MarketsModelingExplainer from '../markets-modeling/MarketsModelingExplainer.jsx';
+import ODEsExplainer from '../odes/ODEsExplainer.jsx';
 import QuantumMechanicsExplainer from '../quantum-mechanics/QuantumMechanicsExplainer.jsx';
 import ReinforcementLearningExplainer from '../reinforcement-learning/ReinforcementLearningExplainer.jsx';
 import RetailQuantExplainer from '../retail-quant/RetailQuantExplainer.jsx';
@@ -203,6 +204,14 @@ export const explainers = [
       'The math of feedback — and the predecessor to RL. State-space dynamics, PID, stability, LQR, Kalman, LQG, MPC, HJB. Anchored on cart-pole and the explicit bridge from Riccati’s closed-form K to policy gradients finding the same K by descent.',
     tags: ['control', 'interactive', 'equations'],
     component: ControlTheoryExplainer,
+  },
+  {
+    slug: 'odes',
+    title: 'Differential Equations',
+    blurb:
+      'An ODE is a rule for change; a solution is the path that obeys it. A practitioner’s survey across three lenses — geometric (vector fields, phase planes, stability), numerical (Euler → RK4 → stiffness → symplectic), and analytical (separable, Laplace). One pendulum carries the whole arc from a tidy sine wave to deterministic chaos.',
+    tags: ['math', 'dynamics', 'interactive', 'equations'],
+    component: ODEsExplainer,
   },
   {
     slug: 'decision-theory',
