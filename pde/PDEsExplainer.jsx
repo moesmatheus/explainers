@@ -79,10 +79,11 @@ const mulberry32 = (a) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
-// Every Card provides this: true only while the card is near the viewport.
-// useRaf reads it so off-screen sims pause — otherwise a dozen live sims run at
-// once and the whole page crawls (and slow sims like Gray–Scott never converge).
-const RafGate = React.createContext(true);
+// Every Card provides { active, enterKey }: `active` is true only while the card
+// is near the viewport (so useRaf pauses off-screen sims — otherwise a dozen live
+// sims run at once and the page crawls); `enterKey` increments each time the card
+// re-enters view, so auto-playing transitions can restart fresh for the reader.
+const RafGate = React.createContext({ active: true, enterKey: 0 });
 
 // requestAnimationFrame loop hook. cb receives dt (seconds, capped) per frame.
 // Pauses automatically when its enclosing Card scrolls out of view.
@@ -90,7 +91,7 @@ const useRaf = (active, cb) => {
   const gate = React.useContext(RafGate);
   const cbRef = useRef(cb); cbRef.current = cb;
   useEffect(() => {
-    if (!active || !gate) return;
+    if (!active || !gate.active) return;
     let raf, last = null, stop = false;
     const loop = (t) => {
       if (stop) return;
@@ -101,7 +102,16 @@ const useRaf = (active, cb) => {
     };
     raf = requestAnimationFrame(loop);
     return () => { stop = true; cancelAnimationFrame(raf); };
-  }, [active, gate]);
+  }, [active, gate.active]);
+};
+
+// Call reset() each time the enclosing Card (re-)enters the viewport, so an
+// auto-playing transition always starts from the beginning when the reader
+// arrives — fixing "by the time I scroll here, the animation is already over".
+const useReplayOnEnter = (reset) => {
+  const { enterKey } = React.useContext(RafGate);
+  const ref = useRef(reset); ref.current = reset;
+  useEffect(() => { if (ref.current) ref.current(); }, [enterKey]);
 };
 
 // --- colormaps --------------------------------------------------------------
@@ -343,12 +353,13 @@ const accentMap = {
 const Card = ({ id, icon: Icon, title, subtitle, accent = 'indigo', index, source, anchor = false, children }) => {
   const a = accentMap[accent] || accentMap.indigo;
   const secRef = useRef(null);
-  const [inView, setInView] = useState(true);
+  const [gate, setGate] = useState({ active: true, enterKey: 0 });
   useEffect(() => {
     const check = () => {
       const el = secRef.current; if (!el) return;
       const r = el.getBoundingClientRect(), vh = window.innerHeight || 800;
-      setInView(r.bottom > -500 && r.top < vh + 500);
+      const v = r.bottom > 40 && r.top < vh - 40; // "is the card actually on screen"
+      setGate((prev) => v === prev.active ? prev : (v ? { active: true, enterKey: prev.enterKey + 1 } : { active: false, enterKey: prev.enterKey }));
     };
     check();
     window.addEventListener('scroll', check, { passive: true });
@@ -383,7 +394,7 @@ const Card = ({ id, icon: Icon, title, subtitle, accent = 'indigo', index, sourc
         </div>
       </div>
       <div className="relative mt-5 text-neutral-200 text-[15px] leading-relaxed space-y-4">
-        <RafGate.Provider value={inView}>{children}</RafGate.Provider>
+        <RafGate.Provider value={gate}>{children}</RafGate.Provider>
       </div>
     </motion.section>
   );
@@ -898,7 +909,9 @@ const OdeToPde = () => {
   const [playing, setPlaying] = useState(true);
   const [ti, setTi] = useState(6);
   const [x0, setX0] = useState(18);
-  useRaf(playing, () => setTi((t) => (t + 1) % NT));
+  const fcnt = useRef(0);
+  useReplayOnEnter(() => setTi(0));
+  useRaf(playing, () => { fcnt.current++; if (fcnt.current % 3 === 0) setTi((t) => (t + 1) % NT); }); // ~3× slower clock
 
   const spatial = useMemo(() => { const a = new Float64Array(NX); for (let i = 0; i < NX; i++) a[i] = at(i, ti); return a; }, [ti, surf]);
   const traj = useMemo(() => { const a = new Float64Array(NT); for (let i = 0; i < NT; i++) a[i] = at(x0, i); return a; }, [x0, surf]);
@@ -991,7 +1004,7 @@ const WhatIsCard = () => (
     </Worked>
     <Misconception
       wrong="A PDE is just an ODE with more variables — solve it the same way."
-      right="An ODE’s state is finite-dimensional (a point in ℝⁿ) and is pinned by an initial point. A PDE’s state is an entire function (infinite-dimensional) and is not determined until you ALSO specify boundary conditions in space, not just an initial condition in time."
+      right="An ODE’s state is finite-dimensional (a point in ℝⁿ) and is pinned by an initial point. A PDE’s state is an entire function (infinite-dimensional), determined only by TWO kinds of data: an initial condition at t = 0 AND boundary conditions on the spatial edges for all t. (A pure-equilibrium problem like Laplace needs only the boundary conditions.)"
       because="The unknown lives in a function space, so ‘where the field is held at the edges’ is part of the problem — which is why the same operator can be an evolution problem (heat, wave) or a pure boundary-value problem (Laplace)." />
     <Deeper>
       <p>
@@ -1204,7 +1217,8 @@ const LaplacianCard = () => (
         <strong>Stability of the relax sim.</strong> The explicit update <Eq>{'\\uu{u}\\leftarrow \\uu{u}+\\alpha\\,(\\text{sum}-4\\uu{u})'}</Eq>
         is the FTCS heat step in disguise. Plugging a Fourier mode <Eq>{'e^{i(px+qy)}'}</Eq> gives growth factor
         {' '}<Eq>{'g = 1 - 2\\alpha\\,(2-\\cos p-\\cos q)'}</Eq>, worst at the checkerboard <Eq>{'p=q=\\pi'}</Eq> where
-        {' '}<Eq>{'g = 1-8\\alpha'}</Eq>. So <Eq>{'\\alpha\\le \\tfrac14'}</Eq> in 2D — exactly the bound that governs the heat
+        {' '}<Eq>{'g = 1-8\\alpha'}</Eq> (the checkerboard alternates sign every cell, so all four neighbors oppose you and the
+        averaging term is maximal — that mode is the easiest to over-shoot). So <Eq>{'\\alpha\\le \\tfrac14'}</Eq> in 2D — exactly the bound that governs the heat
         equation’s timestep ({' '}<CrossLink to="cfl" recap="r = DΔt/Δx² ≤ ½ (1D), ¼ (2D); the checkerboard mode breaks first.">CFL</CrossLink>).
         Drag α past ¼ and the slider lets you watch that mode detonate.
       </p>
@@ -1243,26 +1257,27 @@ const ThreeFates = () => {
   };
   if (!heat.current) init();
   const reset = () => { init(); setResidual(1); setTick((t) => t + 1); };
+  useReplayOnEnter(reset);
   const rHeat = unstable ? 0.60 : 0.40;
 
   useRaf(playing, () => {
     // HEAT — FTCS, r ≤ ½
     { let u = heat.current, w = sH.current;
-      for (let s = 0; s < 6; s++) {
+      for (let s = 0; s < 2; s++) {
         for (let i = 1; i < N - 1; i++) w[i] = u[i] + rHeat * (u[i + 1] - 2 * u[i] + u[i - 1]);
         w[0] = 0; w[N - 1] = 0; const t = u; u = w; w = t;
       }
       let mx = 0; for (let i = 0; i < N; i++) { const a = Math.abs(u[i]); if (a > mx) mx = a; }
       if (!isFinite(mx) || mx > 1e3) { for (let i = 0; i < N; i++) u[i] = bump(i); u[0] = 0; u[N - 1] = 0; }
-      heat.current = u; sH.current = w; steps.current.heat += 6;
+      heat.current = u; sH.current = w; steps.current.heat += 2;
     }
     // WAVE — leapfrog, Courant C ≤ 1, correct from-rest start (baked into init)
     { let p = wPrev.current, c = wCur.current, n = sW.current;
-      for (let s = 0; s < 4; s++) {
+      for (let s = 0; s < 2; s++) {
         for (let i = 1; i < N - 1; i++) n[i] = 2 * c[i] - p[i] + C2 * (c[i + 1] - 2 * c[i] + c[i - 1]);
         n[0] = 0; n[N - 1] = 0; const t = p; p = c; c = n; n = t;
       }
-      wPrev.current = p; wCur.current = c; sW.current = n; steps.current.wave += 4;
+      wPrev.current = p; wCur.current = c; sW.current = n; steps.current.wave += 2;
     }
     // LAPLACE — Gauss-Seidel relaxation to the harmonic equilibrium (a straight line)
     { const u = lap.current; let res = 0;
@@ -1270,6 +1285,7 @@ const ThreeFates = () => {
       for (let i = 1; i < N - 1; i++) { const d = Math.abs(u[i + 1] + u[i - 1] - 2 * u[i]); if (d > res) res = d; }
       steps.current.lap += 24; setResidual(res);
     }
+    if (!unstable && steps.current.wave > 1500) init(); // loop: re-pluck so the three fates keep replaying
     setTick((t) => (t + 1) % 1e9);
   });
 
@@ -1442,7 +1458,7 @@ const ClassifyCard = () => (
     <Block>{'\\lap{B^2-AC}\\;\\begin{cases}<0 & \\text{elliptic}\\ (\\eqm{\\text{Laplace}})\\\\[2pt]=0 & \\text{parabolic}\\ (\\src{\\text{heat}})\\\\[2pt]>0 & \\text{hyperbolic}\\ (\\wv{\\text{wave}})\\end{cases}'}</Block>
     <DiscriminantDial />
     <MinSchema>One number — the discriminant of the top-order terms — sorts every linear PDE into <span className="text-emerald-300">equilibrium</span>, <span className="text-orange-300">diffusion</span>, or <span className="text-sky-300">propagation</span>, with the matching conic and the matching behavior.</MinSchema>
-    <Predict question="Heat has a FIRST time-derivative, the wave a SECOND. The classifier looks only at the highest-order part. Where does heat land — and why on the boundary (disc = 0)?">
+    <Predict question="Heat has a FIRST time-derivative, the wave a SECOND. The classifier looks only at the highest-order part. Where does heat land in the classification — and why exactly on the parabola, the threshold (disc = 0) between elliptic and hyperbolic?">
       <strong>On the parabola, disc = 0.</strong> Classification sees only the principal (highest-order) part. Heat’s is just
       {' '}<Eq>{'\\uu{u}_{xx}'}</Eq> <Eq>{'(A=1,B=0,C=0)'}</Eq> → <Eq>{'B^2-AC=0'}</Eq>. The missing second time-derivative is literally what
       pushes heat onto the boundary between elliptic and hyperbolic — and what gives it infinite speed yet irreversibility.
@@ -1460,8 +1476,9 @@ const ClassifyCard = () => (
       </p>
       <p>
         In <Eq>{'n'}</Eq> dimensions the classifier is the eigenvalue signature of the coefficient matrix: all-same-sign =
-        elliptic, one-flipped = hyperbolic (a Lorentzian (n−1, 1) signature — the wave operator <Eq>{'\\Box=\\partial_{tt}-\\lap{\\Delta}'}</Eq> is
-        the time-flipped Laplacian), one-zero = parabolic. Type fixes which data make the problem <Term>well-posed</Term>: backward heat is
+        elliptic, one-flipped = hyperbolic (a Lorentzian (n−1, 1) signature — the wave operator <Eq>{'\\Box=\\partial_{\\tt{tt}}-\\wv{c}^2\\lap{\\Delta}'}</Eq>
+        {' '}(natural units, c = 1) is the Laplacian with one sign flipped: time enters with the opposite sign to space, the very (+, +, −) signature of spacetime),
+        one-zero = parabolic. Type fixes which data make the problem <Term>well-posed</Term>: backward heat is
         ill-posed precisely because parabolic problems run only one way in time.
       </p>
     </Deeper>
@@ -1488,15 +1505,17 @@ const HeatPlate = () => {
     for (let y = 0; y < N; y++) { w[y * N] = 0; w[y * N + N - 1] = 0; }
     A.current = w; B.current = u;
   };
+  useReplayOnEnter(reset);
   useRaf(playing, () => {
     if (noise > 0) { const a = A.current; for (let i = 0; i < NN; i++) a[i] += noise * (Math.random() * 2 - 1); }
-    for (let s = 0; s < 4; s++) step();
+    for (let s = 0; s < 2; s++) step();
     const u = A.current;
     // Backward heat is genuinely unstable — clamp so it saturates into a bounded
     // checkerboard rather than running off to Infinity/NaN (which would freeze the canvas).
     if (backward) for (let i = 0; i < NN; i++) { const v = u[i]; u[i] = v !== v ? 0 : v > 60 ? 60 : v < -60 ? -60 : v; }
     let mx = interiorMax(u);
     if (!isFinite(mx)) { reseed(); mx = 1; }
+    if (!backward && noise === 0 && mx < 0.06) { reseed(); mx = 1; } // loop: re-warm the plate so the cooling keeps replaying
     setRatio(mx / (initMax.current || 1)); setTick((t) => (t + 1) % 1e9);
   });
   const onClick = (e) => { const rc = e.currentTarget.getBoundingClientRect(); const cxv = clamp(Math.round((e.clientX - rc.left) / rc.width * N), 0, N - 1); const cyv = clamp(Math.round((e.clientY - rc.top) / rc.height * N), 0, N - 1); seedBlob(A.current, cxv, cyv, 1); initMax.current = interiorMax(A.current); setRatio(1); setTick((t) => t + 1); };
@@ -1552,7 +1571,7 @@ const HeatCard = () => (
     </Predict>
     <Misconception
       wrong="Diffusion has a finite speed — heat takes time to reach a distant point."
-      right="The heat kernel exp(−x²/4Dt)/√(4πDt) is strictly positive for every x the instant t > 0. A thermometer a kilometre away responds immediately — immeasurably faintly, but instantly."
+      right="The heat kernel exp(−x²/4Dt)/√(4πDt) is strictly positive for every x the instant t > 0. A thermometer a kilometre away responds immediately — with an amplitude exponentially small in x²/(4Dt), but instantly."
       because="This infinite propagation speed is exactly the parabolic/hyperbolic divide: the wave equation has a strict light cone; heat does not." />
     <Deeper>
       <p>
@@ -1581,8 +1600,9 @@ const HeatKernelDemo = () => {
   const [tickA, setTickA] = useState(0);
   const [playing, setPlaying] = useState(true);
   const resetWalk = () => { pos.current.fill(0); nRef.current = 0; setTickA((t) => t + 1); };
+  useReplayOnEnter(resetWalk);
   useRaf(playing, () => {
-    const S = 2, p = pos.current;
+    const S = 1, p = pos.current;
     for (let s = 0; s < S; s++) for (let i = 0; i < M; i++) p[i] += Math.random() < 0.5 ? -1 : 1;
     nRef.current += S;
     if (nRef.current >= 600) { p.fill(0); nRef.current = 0; }
@@ -1670,7 +1690,8 @@ const HeatKernelCard = () => (
     <Worked title="Three facts, one Gaussian">
       Normalization: <Eq>{'\\int K\\,dx = 1'}</Eq> (mass is conserved). Variance: <Eq>{'2\\sigma^2 = 4D\\tt{t}'}</Eq> so
       {' '}<Eq>{'\\sigma=\\sqrt{2D\\tt{t}}'}</Eq>. Random walk: a <Eq>{'\\pm 1'}</Eq> step each tick has variance 1, so after <Eq>{'n'}</Eq> ticks the
-      position has variance <Eq>{'n'}</Eq> — matching <Eq>{'2D\\tt{t}=n'}</Eq> with <Eq>{'D=\\tfrac12'}</Eq>. That is the cyan/amber lock above.
+      position has variance <Eq>{'n'}</Eq>. The heat kernel has variance <Eq>{'2D\\tt{t}'}</Eq>; with one tick = one time unit and a unit step,
+      {' '}<Eq>{'2D\\tt{t}=n'}</Eq> forces <Eq>{'D=\\tfrac12'}</Eq> (in general <Eq>{'D=\\Delta x^2/2\\Delta t'}</Eq>). That is the cyan/amber lock above.
     </Worked>
     <Predict question="Dye diffuses to a radius of 1 cm in 10 seconds. How long to reach 2 cm?">
       <strong>About 40 seconds — not 20.</strong> Width grows as <Eq>{'\\sqrt{\\tt{t}}'}</Eq>, so doubling the radius takes <em>four</em> times the
@@ -1698,7 +1719,7 @@ const HeatKernelCard = () => (
   </Card>
 );
 const WaveString = () => {
-  const N = 201, dx = 1 / (N - 1), C = 0.5, C2 = C * C, SUB = 4, dt = C * dx; // c = 1
+  const N = 201, dx = 1 / (N - 1), C = 0.5, C2 = C * C, SUB = 2, dt = C * dx; // c = 1
   const [shape, setShape] = useState('triangle');
   const [bc, setBc] = useState('fixed');
   const [playing, setPlaying] = useState(true);
@@ -1724,6 +1745,7 @@ const WaveString = () => {
   if (!uCur.current) initWave();
   useEffect(() => { initWave(); setTick((t) => t + 1); /* eslint-disable-next-line */ }, [shape, bc]);
   const reset = () => { initWave(); setTick((t) => t + 1); };
+  useReplayOnEnter(reset);
 
   useRaf(playing, () => {
     let p = uPrev.current, c = uCur.current, nx = scr.current;
@@ -1839,6 +1861,7 @@ const CharacteristicsDemo = () => {
   const u0fn = (x) => mode === 'linear' ? Math.exp(-(((x - 0.3) / 0.05) ** 2)) : 1 + 0.5 * Math.exp(-(((x - 0.4) / 0.08) ** 2));
   const init = () => { const a = new Float64Array(N); for (let i = 0; i < N; i++) a[i] = u0fn(i * dx); u.current = a; scr.current = new Float64Array(N); tR.current = 0; };
   if (!u.current) init();
+  useReplayOnEnter(() => { init(); setTick((t) => t + 1); });
   useEffect(() => { init(); setTick((t) => t + 1); /* eslint-disable-next-line */ }, [mode]);
 
   useRaf(playing, () => {
@@ -1905,6 +1928,7 @@ const CharacteristicsCard = () => (
       profile spreads and <strong>cross</strong> where it steepens — and a crossing is a <Term>shock</Term>.
     </p>
     <Block>{'\\uu{u}_{\\tt{t}}+\\wv{c}\\,\\uu{u}_{\\kx{x}}=0 \\;\\Rightarrow\\; \\uu{u}\\ \\text{const along}\\ \\lap{\\tfrac{dx}{d\\tt{t}}=\\wv{c}} \\;\\Rightarrow\\; \\uu{u}(x,\\tt{t})=\\uu{u}_0(x-\\wv{c}\\tt{t})'}</Block>
+    <ReadEq>ride a point moving at speed c and your value never changes (<Eq>{'d\\uu{u}/d\\tt{t}=0'}</Eq>) — so the whole profile just slides, <Eq>{'\\uu{u}(x,\\tt{t})=\\uu{u}_0(x-\\wv{c}\\tt{t})'}</Eq>.</ReadEq>
     <CharacteristicsDemo />
     <MinSchema>A characteristic is a curve along which the PDE is just an ODE. Constant-speed ⇒ parallel lines (the profile translates); solution-dependent speed ⇒ lines cross ⇒ a shock from smooth data.</MinSchema>
     <Worked title="When does the shock form?">
@@ -1954,6 +1978,7 @@ const LaplacePlate = () => {
   };
   if (!u.current) { u.current = new Float64Array(G * G); scr.current = new Float64Array(G * G); src.current = new Float64Array(G * G); applyBC(u.current); }
   useEffect(() => { applyBC(u.current); iters.current = 0; setConverged(false); /* eslint-disable-next-line */ }, [edges, poisson]);
+  useReplayOnEnter(() => { u.current.fill(0); applyBC(u.current); iters.current = 0; setConverged(false); setTick((t) => t + 1); }); // re-run the relaxation from scratch on arrival
 
   useRaf(true, () => {
     if (converged) return;
@@ -2030,8 +2055,8 @@ const LaplaceCard = () => (
   <Card id="laplace" icon={Scale} title="Laplace & Poisson: equilibrium" accent="emerald" index={9}
         subtitle="When you ARE the average of your neighbors, nothing moves">
     <p>
-      Set the clock to infinity and heat stops. What remains is the field where every interior point <em>exactly</em> equals the
-      average of its neighbors — the <Term>mean-value</Term> property. There are no interior hot-spots (a <Term>maximum principle</Term>),
+      Set the clock to infinity and heat stops. The condition <Eq>{'\\lap{\\Delta\\uu{u}}=0'}</Eq> now <em>forces</em> every interior
+      point to equal the average of its neighbors — the <Term>mean-value</Term> property. Because of it, there are no interior hot-spots (a <Term>maximum principle</Term>),
       the field is as smooth as it can be, and you reach it by iterating the <CrossLink to="laplacian" recap="Δu = neighbor-average − you; relaxation drives Δu → 0.">Laplacian’s own relax step</CrossLink>.
     </p>
     <Block>{'\\lap{\\Delta\\uu{u}}=0 \\qquad \\uu{u}(\\mathbf{x})=\\operatorname*{avg}_{\\text{neighbors}}\\uu{u} \\qquad \\lap{\\Delta\\uu{u}}=-\\src{f}\\ \\ (\\text{Poisson: sources})'}</Block>
@@ -2079,7 +2104,8 @@ const FourierLab = () => {
   const recon0 = useMemo(() => { const u = new Float64Array(P); for (let p = 0; p < P; p++) { const x = (p + 0.5) / P; let s = 0; for (let k = 1; k <= M; k++) s += bk[k] * Math.sin(k * Math.PI * x); u[p] = s; } return u; }, [bk, M]);
   const rms = useMemo(() => { let s = 0; for (let p = 0; p < P; p++) s += (recon0[p] - target[p]) ** 2; return Math.sqrt(s / P); }, [recon0, target]);
   const gibbs = useMemo(() => { let mx = 0; for (let p = 0; p < P; p++) if (recon0[p] > mx) mx = recon0[p]; return mx - 1; }, [recon0]);
-  useRaf(playing, () => { if (mode === 'laplace') { setT(0); return; } const dt = mode === 'heat' ? 0.0012 : 0.006; const cap = mode === 'heat' ? 0.3 : 2.1; setT((tt) => tt + dt > cap ? 0 : tt + dt); });
+  useReplayOnEnter(() => setT(0));
+  useRaf(playing, () => { if (mode === 'laplace') { setT(0); return; } const dt = mode === 'heat' ? 0.0008 : 0.004; const cap = mode === 'heat' ? 0.32 : 2.2; setT((tt) => tt + dt > cap ? 0 : tt + dt); });
   const ampMax = useMemo(() => Math.max(0.05, ...Array.from(bk).map(Math.abs)), [bk]);
 
   return (
@@ -2099,7 +2125,7 @@ const FourierLab = () => {
           extra={[{ u: target, accent: '#e0e7ff', dash: '5 4', opacity: 0.45, width: 1.3 }]} />
       </div>
       <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-1">mode amplitudes |âₖ| · {mode === 'heat' ? 'heat damps each by e^(−k²Dt) → high pitch dies first' : mode === 'wave' ? 'wave spins each by cos(ckt) → energy conserved' : 'Laplace freezes every mode'}</div>
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-1">mode amplitudes |âₖ| · {mode === 'heat' ? 'heat damps each by e^(−k²Dt) → high pitch dies first' : mode === 'wave' ? 'wave (from rest) spins each by cos(ckt) → energy conserved' : 'Laplace freezes every mode'}</div>
         <FourierEqualizer amps={Array.from(amps).slice(1, M + 1)} max={ampMax} height={110} />
       </div>
       <div className="flex items-center gap-4 flex-wrap text-[11px] font-mono">
@@ -2111,19 +2137,58 @@ const FourierLab = () => {
   );
 };
 
+const OneModeFates = () => {
+  const [k, setK] = useState(2);
+  const data = useMemo(() => {
+    const Tmax = 4, NPT = 160, D = 0.18, c = 1.3;
+    const heat = [], wave = [], lap = [];
+    for (let i = 0; i <= NPT; i++) { const t = (i / NPT) * Tmax; heat.push([t, Math.exp(-k * k * D * t)]); wave.push([t, Math.cos(c * k * t)]); lap.push([t, 1]); }
+    const sinx = new Float64Array(80); for (let i = 0; i < 80; i++) sinx[i] = Math.sin(k * Math.PI * i / 79);
+    return { heat, wave, lap, sinx, Tmax };
+  }, [k]);
+  return (
+    <div className="mt-3 grid md:grid-cols-[150px_1fr] gap-3 items-center">
+      <div>
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-1">one mode · sin({k}πx)</div>
+        <Field1D u={data.sinx} yRange={[-1.1, 1.1]} accent="#a5b4fc" height={88} />
+        <label className="flex items-center gap-1.5 text-[10px] font-mono text-neutral-400 mt-1">mode k<input type="range" min="1" max="6" value={k} onChange={(e) => setK(parseInt(e.target.value))} className="pde-range w-20" /><span className="text-indigo-200">{k}</span></label>
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-1">its amplitude âₖ(t) under each time-coupling — one ODE, three fates</div>
+        <MultiLinePlot width={360} height={150}
+          series={[
+            { pts: data.heat, color: '#fb923c', width: 2, label: 'heat · e^(−k²t) decays' },
+            { pts: data.wave, color: '#7dd3fc', width: 2, label: 'wave · cos(kt) oscillates' },
+            { pts: data.lap, color: '#6ee7b7', width: 2, dash: '5 3', label: 'Laplace · frozen' },
+          ]}
+          xRange={[0, data.Tmax]} yRange={[-1.18, 1.18]} xLabel="t" yLabel="âₖ" yTicks={[-1, 0, 1]} />
+      </div>
+    </div>
+  );
+};
+
 const FourierCard = () => (
   <Card id="fourier" icon={AudioWaveform} title="Fourier: diagonalizing the Laplacian" accent="indigo" index={10} anchor
         subtitle="Sines are eigenvectors of Δ — the PDE falls apart into one ODE per mode">
     <p>
       Here is the language that makes every earlier card trivial. <Eq>{'\\lap{\\Delta}\\kx{\\sin(kx)}=-\\kx{k}^2\\kx{\\sin(kx)}'}</Eq> —
-      sines are the <Term>eigenfunction</Term>s of the Laplacian. Write any field as a sum of sines, and the coupled PDE
+      sines are the <Term>eigenfunction</Term>s of the Laplacian. Write any field as a sum of sines, and — because Δ is <em>linear</em>,
+      {' '}<Eq>{'\\lap{\\Delta}(\\uu{u}+\\uu{v})=\\lap{\\Delta}\\uu{u}+\\lap{\\Delta}\\uu{v}'}</Eq> — it acts on each sine separately, so the coupled PDE
       <em> decouples</em> into independent scalar ODEs, one per <Term>Fourier mode</Term>. Heat damps each amplitude by
-      {' '}<Eq>{'e^{-\\kx{k}^2D\\tt{t}}'}</Eq> (high pitch dies first → smoothing); waves spin each by <Eq>{'\\cos(\\wv{c}\\kx{k}\\tt{t})'}</Eq>; Laplace
+      {' '}<Eq>{'e^{-\\kx{k}^2D\\tt{t}}'}</Eq> (high pitch dies first → smoothing); waves released from rest spin each by <Eq>{'\\cos(\\wv{c}\\kx{k}\\tt{t})'}</Eq>; Laplace
       freezes them. Separation of variables, “hear the drum,” and spectral methods are all <em>this one move</em>.
     </p>
     <Block>{'\\lap{\\Delta}\\kx{\\sin(kx)}=-\\kx{k}^2\\kx{\\sin(kx)} \\qquad \\uu{u}(x,\\tt{t})=\\sum_k \\hat a_k(\\tt{t})\\,\\kx{\\sin(kx)}'}</Block>
     <Block>{'\\text{heat: } \\hat a_k=\\hat a_k(0)\\,e^{-\\kx{k}^2 D\\tt{t}} \\qquad \\text{wave: } \\hat a_k=\\hat a_k(0)\\cos(\\wv{c}\\kx{k}\\tt{t}) \\qquad \\text{Laplace: frozen}'}</Block>
     <FourierLab />
+    <Intuition title="the whole explainer, in one mode">
+      Strip the field down to a <em>single</em> sine. Its shape never changes — only its amplitude <Eq>{'\\hat a_k(\\tt{t})'}</Eq> evolves, and
+      the three big PDEs are three formulas for that one number: <span className="text-orange-300">heat decays it</span>
+      {' '}<Eq>{'(e^{-\\kx{k}^2\\tt{t}})'}</Eq>, <span className="text-sky-300">the wave rotates it</span> <Eq>{'(\\cos \\kx{k}\\tt{t})'}</Eq>, and
+      {' '}<span className="text-emerald-300">Laplace freezes it</span>. Slide <Eq>{'\\kx{k}'}</Eq> up: the higher the pitch, the faster heat
+      kills it <em>and</em> the faster the wave rings — the same <Eq>{'\\kx{k}^2'}</Eq> and <Eq>{'\\kx{k}'}</Eq> from the eigenvalue, made visible.
+    </Intuition>
+    <OneModeFates />
     <MinSchema>The Fourier basis is the coordinate system in which Δ is <strong>diagonal</strong>. In it, every linear constant-coefficient PDE becomes a list of one-variable ODEs — solved per mode, then summed back.</MinSchema>
     <Worked title="Separation of variables, in one breath">
       Seek <Eq>{'\\uu{u}(x,\\tt{t})=X(x)T(\\tt{t})'}</Eq> for <Eq>{'\\uu{u}_{\\tt{t}}=D\\uu{u}_{xx}'}</Eq>. Dividing gives
@@ -2231,10 +2296,11 @@ const GreensCard = () => (
     <p>
       Two superpowers of linearity. <strong>First:</strong> solve once for a point source — the impulse response
       {' '}<Term>Green’s function</Term> <Eq>{'G'}</Eq> — and since any source is a pile of point sources, the answer to <em>any</em> source is
-      just <Eq>{'G*\\src{f}'}</Eq>. <strong>Second:</strong> a Fourier/Laplace transform turns <Eq>{'d/dx'}</Eq> into <Eq>{'\\times ik'}</Eq>, so the
-      differential equation becomes algebra. It’s the same superposition you met as the impulse response in control theory.
+      just <Eq>{'G*\\src{f}'}</Eq>. <strong>Second:</strong> a Fourier/Laplace transform turns <Eq>{'d/dx'}</Eq> into <Eq>{'\\times ik'}</Eq>
+      {' '}(because <Eq>{'\\tfrac{d}{dx}e^{ikx}=ik\\,e^{ikx}'}</Eq>), so the differential equation becomes algebra. It’s the same superposition you
+      met as the impulse response in control theory.
     </p>
-    <Block>{'\\lap{\\Delta}G(\\mathbf{x},\\mathbf{x}_0)=-\\delta(\\mathbf{x}-\\mathbf{x}_0) \\qquad \\uu{u}(\\mathbf{x})=\\int G\\,\\src{f(\\mathbf{x}_0)}\\,d\\mathbf{x}_0=(G*\\src{f})(\\mathbf{x})'}</Block>
+    <Block>{'\\lap{\\Delta}G(\\mathbf{x},\\mathbf{x}_0)=-\\delta(\\mathbf{x}-\\mathbf{x}_0) \\qquad \\uu{u}(\\mathbf{x})=\\int G(\\mathbf{x},\\mathbf{x}_0)\\,\\src{f(\\mathbf{x}_0)}\\,d\\mathbf{x}_0'}</Block>
     <GreensDemo />
     <MinSchema>The Green’s function is the field of a single point source; convolving it with any source solves the whole problem. Transforms diagonalize the operator so each mode is handled by simple division.</MinSchema>
     <Predict question="You’ve already solved Δu = −δ (the Green’s function). A complicated smooth source f arrives. How much extra PDE-solving is needed?">
@@ -2250,7 +2316,9 @@ const GreensCard = () => (
       <p>
         <strong>The fundamental solutions of the big three.</strong> Laplace/Poisson in 2D gives the Newtonian potential
         {' '}<Eq>{'G=-(1/2\\pi)\\log r'}</Eq> (in 3D, <Eq>{'1/4\\pi r'}</Eq>); heat gives the Gaussian <Term>heat kernel</Term>; the wave equation’s
-        lives on the light cone (sharp in 3D, with a 2D wake). Boundaries are handled by the method of images.
+        lives on the light cone (sharp in 3D, with a 2D wake). With boundaries, <Eq>{'G'}</Eq> gains <em>image sources</em> that enforce
+        the condition: the simple <Eq>{'r'}</Eq>-formula breaks and <Eq>{'G'}</Eq> becomes shape-dependent, <Eq>{'G(\\mathbf{x},\\mathbf{x}_0)'}</Eq>. Images
+        close simple geometries (half-spaces, spheres); arbitrary domains fall to boundary-element numerics.
       </p>
       <p>
         <strong>Transforms.</strong> Under a Fourier transform <Eq>{'\\partial/\\partial x \\mapsto ik'}</Eq>, so <Eq>{'\\lap{\\Delta}\\mapsto -|k|^2'}</Eq>
@@ -2363,11 +2431,12 @@ const CflDemo = () => {
   if (!hu.current) { hu.current = seedHeat(); hs.current = new Float64Array(N); const [a, b] = seedWave(); wp.current = a; wc.current = b; ws.current = new Float64Array(N); }
   useEffect(() => { const [a, b] = seedWave(); wp.current = a; wc.current = b; /* eslint-disable-next-line */ }, [C]);
   const clampArr = (u) => { for (let i = 0; i < N; i++) { const v = u[i]; u[i] = v !== v ? 0 : v > 10 ? 10 : v < -10 ? -10 : v; } };
+  useReplayOnEnter(() => { hu.current = seedHeat(); const [a, b] = seedWave(); wp.current = a; wc.current = b; setTick((t) => t + 1); });
 
   useRaf(playing, () => {
     if (mode === 'heat') {
       let u = hu.current, w = hs.current;
-      for (let s = 0; s < 4; s++) { for (let i = 1; i < N - 1; i++) w[i] = u[i] + r * (u[i + 1] - 2 * u[i] + u[i - 1]); w[0] = 0; w[N - 1] = 0; const t = u; u = w; w = t; }
+      for (let s = 0; s < 2; s++) { for (let i = 1; i < N - 1; i++) w[i] = u[i] + r * (u[i + 1] - 2 * u[i] + u[i - 1]); w[0] = 0; w[N - 1] = 0; const t = u; u = w; w = t; }
       clampArr(u); hu.current = u; hs.current = w;
       let mx = 0; for (let i = 0; i < N; i++) mx = Math.max(mx, Math.abs(u[i])); if (mx < 0.05) hu.current = seedHeat();
     } else {
@@ -2542,10 +2611,10 @@ const FemCard = () => (
     </Deeper>
   </Card>
 );
-const CHAR_TONE = { parabolic: 'cyan', hyperbolic: 'sky', elliptic: 'emerald', nonlinear: 'fuchsia' };
+const CHAR_TONE = { parabolic: 'cyan', hyperbolic: 'sky', elliptic: 'emerald', dispersive: 'violet', nonlinear: 'fuchsia' };
 const FAMOUS = [
   { id: 'ns', name: 'Navier–Stokes', eq: '\\uu{u}_{\\tt{t}}+(\\uu{u}\\!\\cdot\\!\\nabla)\\uu{u}=-\\nabla p+\\nu\\lap{\\Delta}\\uu{u}', models: 'every fluid — air, water, blood', char: 'nonlinear', why: 'the (u·∇)u term couples all scales — not a fixed type; a Millennium problem' },
-  { id: 'sch', name: 'Schrödinger', eq: 'i\\hbar\\,\\psi_{\\tt{t}}=-\\tfrac{\\hbar^2}{2m}\\lap{\\Delta}\\psi+V\\psi', models: 'a quantum particle’s wavefunction', char: 'hyperbolic', why: 'heat with an i — diffusion in imaginary time, so it rings (unitary), never smooths' },
+  { id: 'sch', name: 'Schrödinger', eq: 'i\\hbar\\,\\psi_{\\tt{t}}=-\\tfrac{\\hbar^2}{2m}\\lap{\\Delta}\\psi+V\\psi', models: 'a quantum particle’s wavefunction', char: 'dispersive', why: 'a heat/wave hybrid — Δ with a single time-derivative like heat, but the factor i swaps decay for oscillation: it rings unitarily, never smooths, and has no real characteristics' },
   { id: 'max', name: 'Maxwell → wave', eq: '\\Box\\mathbf{E}=0,\\quad \\wv{c}=1/\\sqrt{\\mu_0\\varepsilon_0}', models: 'light and all electromagnetism', char: 'hyperbolic', why: 'reduces to the wave equation for E and B — finite speed c' },
   { id: 'bs', name: 'Black–Scholes', eq: 'V_{\\tt{t}}+\\tfrac12\\sigma^2S^2V_{SS}+rSV_S-rV=0', models: 'the fair price of an option', char: 'parabolic', why: 'literally the heat equation in disguise — volatility is the diffusion constant' },
   { id: 'ein', name: 'Einstein field eqs', eq: 'G_{\\mu\\nu}=8\\pi G\\,T_{\\mu\\nu}', models: 'spacetime curvature — gravity', char: 'nonlinear', why: '10 coupled nonlinear PDEs — geometry sources itself' },
@@ -2558,6 +2627,7 @@ const BsMorph = () => {
   const seed = () => { const a = new Float64Array(N); for (let i = 0; i < N; i++) { const x = -xr + i * dx; a[i] = clamp(x, 0, 3); } return a; };
   if (!A.current) { A.current = seed(); B.current = new Float64Array(N); }
   const [tick, setTick] = useState(0);
+  useReplayOnEnter(() => { A.current = seed(); setTick((t) => t + 1); });
   useRaf(true, () => { let u = A.current, w = B.current; for (let s = 0; s < 2; s++) { for (let i = 1; i < N - 1; i++) w[i] = u[i] + 0.30 * (u[i + 1] - 2 * u[i] + u[i - 1]); w[0] = u[0]; w[N - 1] = u[N - 1]; const t = u; u = w; w = t; } A.current = u; B.current = w; let mx = 0; for (let i = 0; i < N; i++) mx = Math.max(mx, Math.abs(u[i] - clamp(-xr + i * dx, 0, 3))); if (mx > 1.2) A.current = seed(); setTick((t) => (t + 1) % 1e9); });
   return <Field1D u={A.current} yRange={[-0.3, 3.2]} accent="#fb923c" height={110} />;
 };
@@ -2609,9 +2679,10 @@ const GalleryCard = () => (
         subtitle="Six great equations, sorted into the big three — and one secretly the heat equation">
     <p>
       Almost every PDE that runs science is one of the three characters in a costume. <span className="text-cyan-300">Parabolic</span> =
-      relax (heat, diffusion, Black–Scholes). <span className="text-sky-300">Hyperbolic</span> = ring (waves, Maxwell, sound,
-      Schrödinger). <span className="text-emerald-300">Elliptic</span> = settle (Laplace, electrostatics). The two hardest —
-      Navier–Stokes and Einstein — are <span className="text-fuchsia-300">nonlinear</span>, which is exactly why they’re hard.
+      relax (heat, diffusion, Black–Scholes). <span className="text-sky-300">Hyperbolic</span> = ring (waves, Maxwell, sound).
+      {' '}<span className="text-emerald-300">Elliptic</span> = settle (Laplace, electrostatics). Schrödinger is the odd one out —
+      {' '}<span className="text-violet-300">dispersive</span>, the heat equation with an <em>i</em> that turns decay into
+      rotation. The two hardest — Navier–Stokes and Einstein — are <span className="text-fuchsia-300">nonlinear</span>, which is exactly why they’re hard.
     </p>
     <Block>{'i\\hbar\\,\\psi_{\\tt{t}}=-\\tfrac{\\hbar^2}{2m}\\lap{\\Delta}\\psi+V\\psi \\qquad V=e^{\\alpha x+\\beta\\tt{\\tau}}\\,\\uu{u}(x,\\tt{\\tau})\\ \\Rightarrow\\ \\lap{\\uu{u}_{\\tt{\\tau}}=\\uu{u}_{xx}}'}</Block>
     <Gallery />
@@ -2624,8 +2695,8 @@ const GalleryCard = () => (
     </Predict>
     <Misconception
       wrong="Schrödinger is the heat equation (both have Δ and a single time-derivative)."
-      right="It is a heat/wave HYBRID: the factor of i means diffusion in IMAGINARY time. That i turns heat's real, decaying e^(−k²t) into the oscillating e^(−ik²t) of a wave — so Schrödinger conserves probability and rings, it never smooths."
-      because="The Wick rotation t → it maps the heat semigroup to unitary (norm-preserving) evolution — decay becomes rotation." />
+      right="It is a heat/wave HYBRID. The factor i flips the sign inside the exponent: heat's real, decaying e^(−k²t) becomes the pure rotation e^(−ik²t). Same Δ, same single time-derivative — but i exchanges dissipation for oscillation, so probability is conserved and it rings instead of smoothing."
+      because="This is the Wick rotation t → it: it maps heat's dissipative semigroup to unitary (norm-preserving) evolution — 'diffusion in imaginary time'." />
     <Deeper>
       <p>
         <strong>Maxwell → light.</strong> Taking the curl of Faraday’s and Ampère’s laws gives the vector wave equation
@@ -2651,6 +2722,7 @@ const BurgersDemo = () => {
   const u = useRef(null), scr = useRef(null), tR = useRef(0);
   const [tick, setTick] = useState(0);
   const init = () => { const a = new Float64Array(N); for (let i = 0; i < N; i++) a[i] = u0fn(xOf(i)); u.current = a; scr.current = new Float64Array(N); tR.current = 0; };
+  useReplayOnEnter(() => { init(); setTick((t) => t + 1); });
   if (!u.current) init();
   const tStar = 1.649;
   useRaf(playing, () => {
@@ -2716,8 +2788,8 @@ const BurgersCard = () => (
     </Predict>
     <Misconception
       wrong="Viscosity is a numerical fudge; the 'real' inviscid shock is a true discontinuity."
-      right="The viscous solution is the physically correct one; the inviscid shock is its vanishing-viscosity (ν → 0) limit. Viscosity selects the admissible weak solution and pins the shock speed s = (u_L + u_R)/2."
-      because="The weak form alone admits many discontinuous solutions; the entropy condition (u_L > u_R), enforced by vanishing viscosity, picks the one nature uses." />
+      right="Nature solves the viscous problem; the sharp shock is what that viscous front becomes as ν → 0. Among the many discontinuous weak solutions allowed by the equation, viscosity selects the single admissible one — the one obeying the entropy condition u_L > u_R, with speed s = (u_L + u_R)/2."
+      because="The weak form alone admits infinitely many discontinuous solutions; vanishing viscosity is what picks the physical one out of them." />
     <Deeper>
       <p>
         <strong>Breaking time.</strong> Characteristics are straight, <Eq>{'x=x_0+\\uu{u}_0(x_0)\\,\\tt{t}'}</Eq>, with launch-dependent slope;
@@ -2767,6 +2839,7 @@ const NavierStokes = () => {
   };
   if (!om.current) { seed(); reR.current = new Float64Array(NN); imR.current = new Float64Array(NN); uR.current = new Float64Array(NN); vR.current = new Float64Array(NN); }
   const stir = () => { seedRef.current = (seedRef.current * 1103515245 + 12345) >>> 0; seed(); spec.current.fill(0); setTick((t) => t + 1); };
+  useReplayOnEnter(() => { seed(); spec.current.fill(0); setTick((t) => t + 1); });
 
   const bil = (f, xb, yb) => { xb = ((xb % N) + N) % N; yb = ((yb % N) + N) % N; const i0 = Math.floor(xb), j0 = Math.floor(yb), i1 = (i0 + 1) % N, j1 = (j0 + 1) % N, fx = xb - i0, fy = yb - j0; return f[j0 * N + i0] * (1 - fx) * (1 - fy) + f[j0 * N + i1] * fx * (1 - fy) + f[j1 * N + i0] * (1 - fx) * fy + f[j1 * N + i1] * fx * fy; };
 
@@ -2851,9 +2924,10 @@ const NavierStokesCard = () => (
     <Predict question="Stir a 2D fluid hard at one big scale, then stop. Where does the injected energy go before viscosity eats it?">
       <strong>It cascades</strong> — <Eq>{'(\\uu{u}\\!\\cdot\\!\\nabla)\\uu{u}'}</Eq> splits each eddy into smaller eddies through an inertial range with
       little loss, until viscosity dissipates the smallest. The idealized 3D signature is <Eq>{'E(\\kx{k})\\sim \\kx{k}^{-5/3}'}</Eq>. <em>But</em> pure 2D
-      turbulence is different: it inverse-cascades energy to <em>large</em> scales and enstrophy to small (<Eq>{'\\kx{k}^{-3}'}</Eq>). The demo’s 64²
-      grid is a faithful toy — it shows roll-up and filamentation, but has too few decades for a clean power law, so the slopes
-      are drawn separately and labelled, never fitted to the live curve.
+      turbulence runs partly backwards: energy flows toward <em>small</em> <Eq>{'\\kx{k}'}</Eq> (merging into <em>larger</em> vortices) while the enstrophy
+      cascades forward to small scales with a steeper <Eq>{'\\kx{k}^{-3}'}</Eq> slope — the reversal happens because 2D lacks the 3D vortex-stretching
+      that shreds eddies downward. The demo’s 64² grid is a faithful toy — it shows roll-up and filamentation, but has too few
+      decades for a clean power law, so the slopes are drawn separately and labelled, never fitted to the live curve.
     </Predict>
     <Misconception
       wrong="Turbulence is just randomness — noise in the flow."
@@ -2998,6 +3072,7 @@ const GrayScott = () => {
   };
   if (!u.current) seed();
   const applyPreset = (p) => { setPreset(p); setF(GS_PRESETS[p][0]); setKk(GS_PRESETS[p][1]); seed(); setTick((t) => t + 1); };
+  useReplayOnEnter(() => { seed(); setTick((t) => t + 1); }); // arrive → watch the pattern self-organize from blank
 
   useRaf(playing, () => {
     let U = u.current, V = v.current, Un = us.current, Vn = vs.current;
@@ -3154,7 +3229,7 @@ const NeuralPdeCard = () => (
     <p>
       If a network’s output should solve a PDE, just <em>measure</em> how badly it violates the equation and minimize that —
       automatic differentiation hands you <Eq>{'\\uu{u}_{\\tt{t}}'}</Eq> and <Eq>{'\\uu{u}_{xx}'}</Eq> for free, so the PDE residual becomes a loss term.
-      That’s a <Term def="Physics-Informed Neural Network: a net whose loss includes the PDE residual evaluated by automatic differentiation, so its output is forced to (approximately) satisfy the equation — mesh-free.">PINN</Term>. The bigger idea is the <Term def="Fourier Neural Operator: a neural operator whose layers transform to Fourier space, multiply each low mode by a learned weight, and transform back — a learned, trainable version of diagonalizing the Laplacian.">Fourier Neural Operator</Term>: learn the <em>map</em> from input data to solution, doing the heavy
+      That’s a <Term def="Physics-Informed Neural Network: a net whose loss includes the PDE residual evaluated by automatic differentiation, so its output is forced to (approximately) satisfy the equation — mesh-free.">PINN</Term>. The bigger idea is the <Term def="Fourier Neural Operator: a neural operator whose layers transform to Fourier space, apply a learned spectral convolution (per-mode weights that also mix channels) to the low modes, and transform back — a trainable generalization of diagonalizing the Laplacian.">Fourier Neural Operator</Term>: learn the <em>map</em> from input data to solution, doing the heavy
       lifting in Fourier space — which is “diagonalize the Laplacian” from the spine, made trainable.
     </p>
     <Block>{'\\mathcal{L}=\\underbrace{\\lVert \\uu{u}_\\theta-\\uu{u}_{\\text{data}}\\rVert^2}_{\\text{fit data}}+\\lambda\\underbrace{\\lVert\\partial_{\\tt{t}} \\uu{u}_\\theta-\\lap{\\Delta}\\uu{u}_\\theta\\rVert^2}_{\\text{obey the PDE}} \\qquad (\\mathcal{K}v)(x)=\\mathcal{F}^{-1}\\!\\big(\\an{R_\\theta}\\cdot\\mathcal{F}v\\big)(x)'}</Block>
@@ -3189,8 +3264,8 @@ const NeuralPdeCard = () => (
 const SPINE_NODES = [
   { label: 'a local rule', to: 'whatis', tone: '#e0e7ff' },
   { label: 'the Laplacian', to: 'laplacian', tone: '#a5b4fc' },
-  { label: 'Fourier', to: 'fourier', tone: '#67e8f9' },
   { label: 'three fates', to: 'bigthree', tone: '#fb923c' },
+  { label: 'Fourier', to: 'fourier', tone: '#67e8f9' },
   { label: 'numerics & frontier', to: 'turing', tone: '#f0abfc' },
 ];
 const LENSES = [
