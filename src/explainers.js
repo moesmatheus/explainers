@@ -13,6 +13,7 @@ import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx
 import MachineLearningExplainer from '../machine-learning/MachineLearningExplainer.jsx';
 import MarketsModelingExplainer from '../markets-modeling/MarketsModelingExplainer.jsx';
 import ODEsExplainer from '../odes/ODEsExplainer.jsx';
+import OptimizationExplainer from '../optimization/OptimizationExplainer.jsx';
 import PDEsExplainer from '../pde/PDEsExplainer.jsx';
 import QuantumMechanicsExplainer from '../quantum-mechanics/QuantumMechanicsExplainer.jsx';
 import ReinforcementLearningExplainer from '../reinforcement-learning/ReinforcementLearningExplainer.jsx';
@@ -221,6 +222,14 @@ export const explainers = [
       'A PDE is a local conversation between a point and its neighbors. The Laplacian — your neighbors’ average minus you — is the grammar; wire it to time three ways and you get heat that smooths, waves that travel, and equilibrium that balances. Fourier makes it trivial, numerics make it real, and the same smoothing operator ends up building Turing patterns.',
     tags: ['math', 'physics', 'interactive', 'equations'],
     component: PDEsExplainer,
+  },
+  {
+    slug: 'optimization',
+    title: 'Optimization',
+    blurb:
+      'A zoo of methods, one idea: follow the slope downhill as far as you trust it, until every way down is blocked. The full panorama — gradient descent, Newton & momentum, convexity, Lagrange/KKT & duality (the multiplier is a shadow price), the simplex, branch-and-bound, dynamic programming, SGD/Adam, non-convexity, and global search. Anchored on a coffee roaster allocating scarce resources, solved every way.',
+    tags: ['math', 'methods', 'interactive', 'equations'],
+    component: OptimizationExplainer,
   },
   {
     slug: 'decision-theory',
