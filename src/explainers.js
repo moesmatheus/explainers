@@ -13,6 +13,7 @@ import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx
 import MachineLearningExplainer from '../machine-learning/MachineLearningExplainer.jsx';
 import MarketsModelingExplainer from '../markets-modeling/MarketsModelingExplainer.jsx';
 import ODEsExplainer from '../odes/ODEsExplainer.jsx';
+import PDEsExplainer from '../pde/PDEsExplainer.jsx';
 import QuantumMechanicsExplainer from '../quantum-mechanics/QuantumMechanicsExplainer.jsx';
 import ReinforcementLearningExplainer from '../reinforcement-learning/ReinforcementLearningExplainer.jsx';
 import RetailQuantExplainer from '../retail-quant/RetailQuantExplainer.jsx';
@@ -212,6 +213,14 @@ export const explainers = [
       'An ODE is a rule for change; a solution is the path that obeys it. A practitioner’s survey across three lenses — geometric (vector fields, phase planes, stability), numerical (Euler → RK4 → stiffness → symplectic), and analytical (separable, Laplace). One pendulum carries the whole arc from a tidy sine wave to deterministic chaos.',
     tags: ['math', 'dynamics', 'interactive', 'equations'],
     component: ODEsExplainer,
+  },
+  {
+    slug: 'pde',
+    title: 'Partial Differential Equations',
+    blurb:
+      'A PDE is a local conversation between a point and its neighbors. The Laplacian — your neighbors’ average minus you — is the grammar; wire it to time three ways and you get heat that smooths, waves that travel, and equilibrium that balances. Fourier makes it trivial, numerics make it real, and the same smoothing operator ends up building Turing patterns.',
+    tags: ['math', 'physics', 'interactive', 'equations'],
+    component: PDEsExplainer,
   },
   {
     slug: 'decision-theory',
