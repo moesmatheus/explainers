@@ -386,6 +386,9 @@ The SVG-edge clip check from detector 1, but for HTML — any descendant whose b
       const ccs = getComputedStyle(child);
       if (ccs.display==='none' || ccs.visibility==='hidden' || parseFloat(ccs.opacity)<0.1) return;
       if (ccs.position === 'fixed' || ccs.position === 'absolute') return;
+      if (child.closest('.katex')) return; // KaTeX stretchy SVGs (\underbrace, \widehat) are self-clipped
+      // inside a scroll/clip box between child and card (e.g. detector 11's mobile chart scroller) → intentional
+      for (let a = child.parentElement; a && a !== card; a = a.parentElement) { const o = getComputedStyle(a).overflowX; if (o !== 'visible') return; }
       const r = child.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return;
       const esc = Math.max(cr.left-r.left, r.right-cr.right, cr.top-r.top, r.bottom-cr.bottom);
       if (esc > 2) hits.push({ esc: Math.round(esc), text: (child.textContent||'').trim().slice(0,40), tag: child.tagName.toLowerCase(), card: card.closest('[id]')?.id });

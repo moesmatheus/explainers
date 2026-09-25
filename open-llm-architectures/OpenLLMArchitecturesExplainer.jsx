@@ -48,7 +48,7 @@ const Eq = ({ children }) => {
 const Block = ({ children }) => {
   const html = useMemo(() => renderTex(String(children), true), [children]);
   return (
-    <div className="rounded-lg bg-white/[0.03] border border-white/10 px-4 py-3 overflow-x-auto text-neutral-100">
+    <div className="rounded-lg bg-white/[0.03] border border-white/10 px-4 py-3 overflow-x-auto text-neutral-100 text-[15px]">
       <div dangerouslySetInnerHTML={{ __html: html }} />
     </div>
   );
@@ -66,6 +66,13 @@ const fmtBytes = (b) => {
 const fmtTok = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : `${n}`);
 const fmtNum = (n) => n.toLocaleString('en-US');
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+// Chart shell: on phones the SVG keeps a readable min-width and the box scrolls sideways
+// (AGENTS.md detector 11), instead of shrinking 11px labels to 5px.
+const ChartBox = ({ children, className = '' }) => (
+  <div className={`overflow-x-auto ${className}`}>{children}</div>
+);
+const CHART_CLS = 'w-full min-w-[460px]';
 
 // deterministic RNG for any simulation
 const mulberry32 = (a) => () => {
@@ -743,8 +750,6 @@ const Stub = ({ id, icon, title, index, accent }) => (
   </Card>
 );
 
-const Costs = () => <Stub id="c-costs" icon={Gauge} title="The three bills every LLM pays" index={1} accent="rose" />;
-const KVDiet = () => <Stub id="c-kv" icon={Database} title="The KV-cache diet: MHA → GQA → MLA" index={2} accent="orange" />;
 const Windows = () => <Stub id="c-window" icon={Scissors} title="Sliding windows, global layers & attention sinks" index={3} accent="orange" />;
 const Sparse = () => <Stub id="c-sparse" icon={Filter} title="Sparse attention: read only what matters" index={4} accent="rose" />;
 const Linear = () => <Stub id="c-linear" icon={Waves} title="Linear attention: the past as a fixed-size matrix" index={5} accent="cyan" />;
@@ -759,6 +764,280 @@ const Train = () => <Stub id="c-train" icon={Rocket} title="Training tricks: Muo
 const Lineup = () => <Stub id="c-lineup" icon={Table2} title="Spec sheets: the flagship open models, decoded" index={14} accent="fuchsia" />;
 const Future = () => <Stub id="c-future" icon={Telescope} title="Where it's going — and what got walked back" index={15} accent="amber" />;
 const Trails = () => <Stub id="c-trails" icon={MapIcon} title="Next trails" index={16} accent="violet" />;
+
+// ============================================================================
+// CARD 1 — The three bills (spine)
+// ============================================================================
+
+// Llama-3-70B-shaped dense GQA baseline: 80 layers, 8 KV heads × 128 dims, BF16.
+const BASE = { params: 70e9, layers: 80, kvHeads: 8, dHead: 128, bytes: 2 };
+const KV_PER_TOKEN = 2 * BASE.layers * BASE.kvHeads * BASE.dHead * BASE.bytes; // 327,680 B
+const WEIGHT_BYTES = BASE.params * BASE.bytes; // 140 GB
+
+const kvShare = (T, B) => (B * T * KV_PER_TOKEN) / (WEIGHT_BYTES + B * T * KV_PER_TOKEN);
+
+const ShareChart = ({ T, B }) => {
+  const W = 520, H = 250, L = 46, R = 14, Tp = 14, Bm = 40;
+  const lx = (t) => L + ((Math.log10(t) - 3) / 3) * (W - L - R); // 1K..1M
+  const ly = (s) => Tp + (1 - s) * (H - Tp - Bm);
+  const batches = [
+    { b: 1, c: '#67e8f9' }, { b: 8, c: '#fdba74' }, { b: 64, c: '#fb7185' },
+  ];
+  const path = (b) => {
+    const pts = [];
+    for (let i = 0; i <= 90; i++) { const t = 10 ** (3 + (3 * i) / 90); pts.push(`${lx(t).toFixed(1)},${ly(kvShare(t, b)).toFixed(1)}`); }
+    return 'M' + pts.join('L');
+  };
+  return (
+    <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+      {[0, 0.25, 0.5, 0.75, 1].map(s => (
+        <g key={s}>
+          <line x1={L} x2={W - R} y1={ly(s)} y2={ly(s)} stroke="#ffffff" strokeOpacity={s === 0.5 ? 0.25 : 0.07} strokeDasharray={s === 0.5 ? '4 4' : undefined} />
+          <text x={L - 6} y={ly(s) + 4} textAnchor="end" fontSize={11} fill="#a3a3a3">{Math.round(s * 100)}%</text>
+        </g>
+      ))}
+      {[1e3, 1e4, 1e5, 1e6].map(t => (
+        <text key={t} x={lx(t)} y={H - Bm + 16} textAnchor="middle" fontSize={11} fill="#a3a3a3">{fmtTok(t)}</text>
+      ))}
+      <text x={(L + W - R) / 2} y={H - 6} textAnchor="middle" fontSize={11} fill="#a3a3a3">context length (tokens, log scale)</text>
+      {batches.map(({ b, c }) => (
+        <path key={b} d={path(b)} fill="none" stroke={c} strokeWidth={b === B ? 3 : 1.5} strokeOpacity={b === B ? 1 : 0.45} />
+      ))}
+      {batches.map(({ b, c }, i) => (
+        <text key={b} x={L + 8} y={Tp + 14 + i * 15} fontSize={11} fill={c}>batch {b}</text>
+      ))}
+      {[1, 8, 64].includes(B) ? null : (
+        <path d={path(B)} fill="none" stroke="#e5e5e5" strokeWidth={2.5} />
+      )}
+      <line x1={lx(T)} x2={lx(T)} y1={Tp} y2={H - Bm} stroke="#f5f5f5" strokeOpacity={0.35} />
+      <circle cx={lx(T)} cy={ly(kvShare(T, B))} r={5} fill="#f5f5f5" />
+    </svg></ChartBox>
+  );
+};
+
+const Costs = () => {
+  const [logT, setLogT] = useState(Math.log10(32768));
+  const [B, setB] = useState(8);
+  const T = Math.round(10 ** logT);
+  const kvSeq = T * KV_PER_TOKEN;
+  const share = kvShare(T, B);
+  const crossover = WEIGHT_BYTES / (B * KV_PER_TOKEN);
+  return (
+    <Card id="c-costs" icon={Gauge} title="The three bills every LLM pays" subtitle="Every idea on this page cuts one of them" accent="rose" index={1} anchor>
+      <MinSchema>
+        Each generated token pays for <span className="text-orange-300">reading the past</span> (the <Term>KV cache</Term>, grows with context),
+        for <span className="text-violet-300">touching the weights</span> (<Term>active parameters</Term>), and — once, up front — for <span className="text-emerald-300">training</span>.
+        Linear/sparse/latent attention cut bill 1; MoE cuts bill 2; Muon/FP8/MTP cut bill 3.
+      </MinSchema>
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        {[
+          { c: 'border-orange-400/25 bg-orange-400/[0.04]', t: 'text-orange-300', h: '① memory of the past', b: 'Softmax attention keeps every past key & value. Cache grows O(T); total attention compute grows O(T²).', f: 'cards 2–10' },
+          { c: 'border-violet-400/25 bg-violet-400/[0.04]', t: 'text-violet-300', h: '② cost of knowing', b: 'A dense model runs every weight for every token. Knowledge and per-token compute are welded together.', f: 'cards 11–12' },
+          { c: 'border-emerald-400/25 bg-emerald-400/[0.04]', t: 'text-emerald-300', h: '③ cost of learning', b: 'Trillions of tokens × billions of weights. Every % of optimizer or number-format efficiency is millions of dollars.', f: 'card 13' },
+        ].map(x => (
+          <div key={x.h} className={`rounded-lg border ${x.c} p-3`}>
+            <div className={`text-[11px] uppercase tracking-widest ${x.t}`}>{x.h}</div>
+            <div className="mt-1 text-[12.5px] text-neutral-300 leading-snug">{x.b}</div>
+            <div className="mt-1.5 text-[10px] font-mono text-neutral-500">{x.f}</div>
+          </div>
+        ))}
+      </div>
+
+      <p>
+        Why bill ① became the obsession: during <Term>decode</Term>, a GPU is starved for memory bandwidth, not math. Each step it must stream
+        the weights <em>once</em> for the whole batch — but the KV cache <em>once per sequence</em>. Batching amortizes weights; it multiplies the cache.
+      </p>
+
+      <Predict question={<>A Llama-3-70B-shaped model (GQA, BF16) stores <span className="font-mono">320 KB</span> of KV per token and has <span className="font-mono">140 GB</span> of weights. Serving one user, how long must the context get before each decode step reads as many bytes of cache as of weights? And with 64 users batched?</>}>
+        <span className="font-mono">140 GB ÷ 320 KB ≈ 430K tokens</span> for one user — comfortably past most chats. But at batch 64 the cache is read 64×, so the crossover drops to <span className="font-mono">≈ 6.7K tokens</span>. In real serving, the KV cache — not the weights — is the bottleneck almost immediately. That's why every lab is attacking it.
+      </Predict>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">share of each decode step's memory traffic spent on the KV cache</div>
+          <div className="text-[10px] text-neutral-500">70B dense GQA · BF16</div>
+        </div>
+        <ShareChart T={T} B={B} />
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Slider label="context length" value={logT} min={3} max={6} step={0.01} onChange={setLogT} fmt={() => `${fmtTok(T)} tokens`} />
+          <Slider label="concurrent sequences (batch)" value={B} min={1} max={64} onChange={setB} color="accent-orange-400" />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Stat label="KV / sequence" value={fmtBytes(kvSeq)} color="text-orange-300" sub={`${fmtTok(T)} × 320 KB`} />
+          <Stat label="KV / step" value={fmtBytes(kvSeq * B)} color="text-rose-300" sub={`× ${B} sequences`} />
+          <Stat label="KV share" value={`${Math.round(share * 100)}%`} color={share > 0.5 ? 'text-rose-300' : 'text-cyan-300'} sub="of bytes streamed per step" />
+          <Stat label="crossover" value={fmtTok(Math.round(crossover))} color="text-amber-300" sub="context where KV = weights" />
+        </div>
+      </div>
+
+      <Worked title="worked example · where 320 KB per token comes from">
+        <Block>{String.raw`\underbrace{\num{2}}_{K,V}\times\underbrace{\num{80}}_{\text{layers}}\times\underbrace{\num{8}}_{\text{KV heads}}\times\underbrace{\num{128}}_{d_{\text{head}}}\times\underbrace{\num{2}\,\text{B}}_{\text{BF16}} = \hi{327{,}680\ \text{B}}\approx 320\ \text{KB/token}`}</Block>
+        <div>At the current slider, one {fmtTok(T)}-token session holds <span className="font-mono text-orange-300">{fmtBytes(kvSeq)}</span> <Grounding>{(kvSeq / 80e9).toFixed(kvSeq > 8e10 ? 1 : 2)} × an 80 GB H100</Grounding> of cache — before you store a single weight.</div>
+      </Worked>
+
+      <WhenItMatters>
+        Choosing a model for long agent sessions, RAG over big documents, or high-concurrency serving: cache size per token decides how many users fit on a GPU. For short chats at batch 1 it barely matters.
+      </WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Compute, not just memory.</strong> Attention scores cost about <Eq>{String.raw`4\,L\,d_{\text{attn}}\,T`}</Eq> FLOPs per token versus
+          <Eq>{String.raw`2N`}</Eq> for the weight matmuls. For the 70B baseline (<Eq>{String.raw`L=80,\ d_{\text{attn}}=8192`}</Eq>) they are equal at
+          <Eq>{String.raw`T = \tfrac{2\cdot 70\text{B}}{4\cdot 80\cdot 8192}\approx \num{53\text{K}}`}</Eq>. Past that, <Term>prefill</Term> of a long prompt is dominated by the quadratic term — which is what <CrossLink to="c-sparse" recap="Sparse attention: a cheap indexer picks the top-k past tokens; full attention runs only on those.">sparse attention</CrossLink> and <CrossLink to="c-linear" recap="Linear attention folds the past into a fixed-size matrix: O(1) per token, no growing cache.">linear attention</CrossLink> go after.
+        </p>
+        <p>
+          <strong>Bill ③ in numbers.</strong> DeepSeek-V3 (671B total / 37B active) reported 2.788M H800 GPU-hours for its full training run — about $5.6M at $2/GPU-hour, excluding research and failed runs. That figure was only possible because of bills ② (MoE) and ③ (FP8) being cut at the same time.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'Why does batching make the KV cache worse relative to the weights?', a: 'Weights are shared by every sequence in the batch, so they are streamed once per step. Each sequence has its own KV cache, so cache traffic scales with batch × context.' },
+        { q: 'Which bill does a Mixture-of-Experts model cut, and which does it leave alone?', a: 'It cuts bill ② (per-token weight compute) by activating only a few experts. It does nothing for bill ① — the attention KV cache is unchanged.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 2 — The KV-cache diet: MHA → GQA → MQA → MLA
+// ============================================================================
+
+// DeepSeek-V3 shape: 61 layers, 128 query heads × 128 dims; MLA latent 512 + decoupled RoPE key 64.
+const KV_SCHEMES = [
+  { key: 'mha', label: 'MHA', elems: 2 * 128 * 128, color: '#fb7185', note: 'every head its own K and V' },
+  { key: 'gqa', label: 'GQA-8', elems: 2 * 8 * 128, color: '#fdba74', note: '16 query heads share each K/V head' },
+  { key: 'mqa', label: 'MQA', elems: 2 * 1 * 128, color: '#fcd34d', note: 'all 128 heads share one K/V' },
+  { key: 'mla', label: 'MLA', elems: 512 + 64, color: '#67e8f9', note: 'one 512-d latent + 64-d RoPE key' },
+];
+
+const HeadDiagram = ({ scheme }) => {
+  const W = 500, H = 190, nQ = 8;
+  const qx = (i) => 40 + i * ((W - 80) / (nQ - 1));
+  const groups = scheme === 'mha' ? 8 : scheme === 'gqa' ? 2 : 1;
+  const kvx = (g) => groups === 1 ? W / 2 : 40 + g * ((W - 80) / (groups - 1));
+  return (
+    <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={`${CHART_CLS} max-w-[560px] mx-auto block`}>
+      <text x={10} y={22} fontSize={11} fill="#fdba74">query heads</text>
+      {Array.from({ length: nQ }, (_, i) => (
+        <rect key={i} x={qx(i) - 14} y={30} width={28} height={22} rx={4} fill="#f97316" fillOpacity={0.2} stroke="#fdba74" strokeOpacity={0.7} />
+      ))}
+      {scheme !== 'mla' && Array.from({ length: nQ }, (_, i) => {
+        const g = Math.floor(i / (nQ / groups));
+        return <motion.line key={`${scheme}-${i}`} x1={qx(i)} y1={52} x2={kvx(g)} y2={118} stroke="#a3a3a3" strokeOpacity={0.4}
+          initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, delay: i * 0.03 }} />;
+      })}
+      {scheme !== 'mla' && Array.from({ length: groups }, (_, g) => (
+        <motion.g key={`${scheme}-g${g}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+          <rect x={kvx(g) - 18} y={118} width={36} height={30} rx={4} fill="#fb7185" fillOpacity={0.22} stroke="#fda4af" />
+          <text x={kvx(g)} y={137} textAnchor="middle" fontSize={11} fill="#fecdd3">K V</text>
+        </motion.g>
+      ))}
+      {scheme === 'mla' && (
+        <g>
+          {Array.from({ length: nQ }, (_, i) => (
+            <motion.line key={`mla-${i}`} x1={qx(i)} y1={52} x2={W / 2} y2={118} stroke="#67e8f9" strokeOpacity={0.45} strokeDasharray="3 3"
+              initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, delay: i * 0.03 }} />
+          ))}
+          <text x={W - 6} y={92} textAnchor="end" fontSize={11} fill="#a5f3fc">W_UK, W_UV re-expand per head</text>
+          <motion.rect initial={{ scaleX: 0.3 }} animate={{ scaleX: 1 }} style={{ transformOrigin: `${W / 2}px 133px` }}
+            x={W / 2 - 95} y={118} width={190} height={30} rx={6} fill="#06b6d4" fillOpacity={0.22} stroke="#67e8f9" />
+          <text x={W / 2} y={137} textAnchor="middle" fontSize={11} fill="#cffafe">latent c (512) + k_rope (64)</text>
+        </g>
+      )}
+      <text x={10} y={176} fontSize={11} fill="#a3a3a3">cached per token, per layer</text>
+      <text x={W - 10} y={176} textAnchor="end" fontSize={11} fill="#e5e5e5" fontFamily="monospace">
+        {fmtNum(KV_SCHEMES.find(s => s.key === scheme).elems)} numbers
+      </text>
+    </svg></ChartBox>
+  );
+};
+
+const KVDiet = () => {
+  const [scheme, setScheme] = useState('mla');
+  const [logT, setLogT] = useState(Math.log10(131072));
+  const [fp8, setFp8] = useState(false);
+  const T = Math.round(10 ** logT);
+  const layers = 61, bpe = fp8 ? 1 : 2;
+  const perTok = (s) => s.elems * layers * bpe;
+  const maxB = perTok(KV_SCHEMES[0]) * T;
+  return (
+    <Card id="c-kv" icon={Database} title="The KV-cache diet: MHA → GQA → MLA" subtitle="Cache fewer numbers per token without making the heads identical" accent="orange" index={2} source="DeepSeek-V2 (2024) · V3 (2024) · Kimi K2 (2025)">
+      <MinSchema>
+        GQA shrinks the cache by making heads <em>share</em> keys and values. <Term>MLA</Term> shrinks it by caching one small <em>latent</em> per token and
+        re-expanding it into distinct per-head K/V at compute time — cache like MQA, expressivity close to MHA.
+      </MinSchema>
+
+      <Tabs options={KV_SCHEMES.map(s => ({ key: s.key, label: s.label }))} value={scheme} onChange={setScheme} color="orange" />
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-3">
+        <HeadDiagram scheme={scheme} />
+        <div className="text-[12px] text-neutral-400 px-1">{KV_SCHEMES.find(s => s.key === scheme).note}</div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">KV cache for one sequence · DeepSeek-V3 shape (61 layers, 128 heads × 128)</div>
+        </div>
+        {KV_SCHEMES.map(s => {
+          const b = perTok(s) * T;
+          return (
+            <button key={s.key} onClick={() => setScheme(s.key)} className="w-full text-left">
+              <div className="flex items-center gap-3">
+                <div className={`w-14 shrink-0 text-[12px] font-mono ${scheme === s.key ? 'text-neutral-50' : 'text-neutral-400'}`}>{s.label}</div>
+                <div className="flex-1 h-5 rounded bg-white/[0.04] overflow-hidden">
+                  <motion.div className="h-full rounded" style={{ background: s.color, opacity: scheme === s.key ? 0.9 : 0.5 }}
+                    initial={{ width: 0 }} animate={{ width: `${Math.max(0.6, (b / maxB) * 100)}%` }} transition={{ duration: 0.5 }} />
+                </div>
+                <div className="w-20 shrink-0 text-right text-[12px] font-mono text-neutral-200">{fmtBytes(b)}</div>
+              </div>
+            </button>
+          );
+        })}
+        <div className="grid sm:grid-cols-2 gap-3 pt-1">
+          <Slider label="context length" value={logT} min={3} max={6} step={0.01} onChange={setLogT} fmt={() => `${fmtTok(T)} tokens`} color="accent-orange-400" />
+          <label className="flex items-center gap-2 text-[12px] text-neutral-300">
+            <input type="checkbox" checked={fp8} onChange={(e) => setFp8(e.target.checked)} className="accent-orange-400" />
+            store the cache in FP8 (1 byte / number) instead of BF16
+          </label>
+        </div>
+        <div className="text-[12px] text-neutral-400">
+          MLA vs MHA: <span className="font-mono text-cyan-300">{(KV_SCHEMES[0].elems / KV_SCHEMES[3].elems).toFixed(0)}× smaller</span> ·
+          MLA vs GQA-8: <span className="font-mono text-cyan-300">{(KV_SCHEMES[1].elems / KV_SCHEMES[3].elems).toFixed(1)}× smaller</span>
+        </div>
+      </div>
+
+      <Worked title="worked example · the MLA trick in three lines">
+        <Block>{String.raw`\st{c_t} = W^{DKV} h_t \in \mathbb{R}^{\num{512}} \qquad k_{t,i} = W^{UK}_i\, \st{c_t} \qquad v_{t,i} = W^{UV}_i\, \st{c_t}`}</Block>
+        <div>Only <Eq>{String.raw`\st{c_t}`}</Eq> is cached. At attention time the up-projection folds into the query (<em>weight absorption</em>), so keys are never materialized:</div>
+        <Block>{String.raw`q_{t,i}^{\top} k_{s,i} = q_{t,i}^{\top} W^{UK}_i \st{c_s} = \big(\underbrace{W^{UK\top}_i q_{t,i}}_{\text{computed once per query}}\big)^{\top} \st{c_s}`}</Block>
+      </Worked>
+
+      <Misconception
+        wrong="MLA is lossy compression, so it must trade quality for memory like MQA does."
+        right="DeepSeek-V2's ablations had MLA matching or beating full MHA, while GQA and MQA lost quality."
+        because="The latent is low-rank but each head still gets its own learned up-projection, so heads stay different. MQA forces them to literally share one K and V." />
+
+      <WhenItMatters>
+        MLA is now the default in the DeepSeek lineage and its descendants (Kimi K2 reuses it). If you serve long contexts, a 4–7× smaller cache than GQA means 4–7× more concurrent users per GPU.
+      </WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Why a separate RoPE key?</strong> <Term>RoPE</Term> rotates keys by a position-dependent matrix <Eq>{String.raw`R_s`}</Eq>. That rotation would sit between <Eq>{String.raw`W^{UK}`}</Eq> and <Eq>{String.raw`\st{c_s}`}</Eq> and break the absorption above
+          (<Eq>{String.raw`q^\top R_{t-s} W^{UK} c_s`}</Eq> can't be precomputed). So MLA keeps the latent position-free and adds a small <Eq>{String.raw`\num{64}`}</Eq>-dim key <Eq>{String.raw`k^R_s`}</Eq>, shared by all heads, that carries RoPE — hence 512 + 64 = 576 cached numbers per layer.
+        </p>
+        <p>
+          <strong>Training vs inference.</strong> During training MLA behaves like ordinary MHA with 128-dim heads (keys are materialized, fully parallel). The absorption trick is an inference-time re-association — same math, different order of matmuls. Low-rank query compression (<Eq>{String.raw`d_c' = 1536`}</Eq> in V3) is a separate, activation-memory saving.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'GQA-8 on a 128-head model caches how many K/V numbers per token per layer (head dim 128)?', a: '2 × 8 × 128 = 2,048. MLA caches 576 — about 3.6× fewer, while keeping 128 distinct heads.' },
+        { q: 'Why can\'t MLA just apply RoPE to the latent c?', a: 'RoPE is position-dependent, so it would sit between W_UK and c and block folding W_UK into the query. The decoupled 64-dim RoPE key avoids that.' },
+      ]} />
+    </Card>
+  );
+};
 
 // ============================================================================
 // Page
