@@ -750,8 +750,6 @@ const Stub = ({ id, icon, title, index, accent }) => (
   </Card>
 );
 
-const Hybrid = () => <Stub id="c-hybrid" icon={Network} title="Hybrid stacks: mostly linear, a little softmax" index={9} accent="sky" />;
-const GatedAttn = () => <Stub id="c-gate" icon={Eye} title="Gated attention and the end of the attention sink" index={10} accent="orange" />;
 const MoE = () => <Stub id="c-moe" icon={Boxes} title="Fine-grained MoE: 1T parameters, 32B per token" index={11} accent="violet" />;
 const Balance = () => <Stub id="c-balance" icon={Scale} title="Load balancing without the auxiliary loss" index={12} accent="violet" />;
 const Train = () => <Stub id="c-train" icon={Rocket} title="Training tricks: Muon, FP8/MXFP4, multi-token prediction" index={13} accent="emerald" />;
@@ -1764,6 +1762,228 @@ const KDA = () => {
       <QA items={[
         { q: 'Set the spread to 0 in KDA mode. What do you get?', a: 'Every channel has the same α, i.e. exactly Gated DeltaNet\'s scalar gate. KDA strictly generalizes GDN.' },
         { q: 'Kimi Linear keeps 1 full-attention (MLA) layer in 4. Why roughly 75% less KV cache rather than 100%?', a: 'Only the MLA layers keep a per-token cache; the 3 KDA layers of each group hold a fixed-size state. One cache-bearing layer in four → about a quarter of the cache.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 9 — Hybrid stacks
+// ============================================================================
+
+// Layer kinds → color + whether the layer keeps a per-token cache (and if capped, the cap).
+const LAYER_KIND = {
+  gdn:   { label: 'Gated DeltaNet', color: '#22d3ee', cache: 'state' },
+  kda:   { label: 'KDA', color: '#2dd4bf', cache: 'state' },
+  light: { label: 'Lightning (linear)', color: '#38bdf8', cache: 'state' },
+  mamba: { label: 'Mamba-2', color: '#60a5fa', cache: 'state' },
+  full:  { label: 'Full softmax (GQA / MLA)', color: '#fb923c', cache: 'full' },
+  swa:   { label: 'Sliding window', color: '#fcd34d', cache: 'window' },
+};
+const rep = (pattern, n) => Array.from({ length: n }, () => pattern).flat();
+const spread = (nA, a, nB, b) => { // evenly interleave nB b-layers among nA a-layers (schematic)
+  const out = []; let bi = 0;
+  for (let i = 0; i < nA + nB; i++) { const want = Math.round(((i + 1) * nB) / (nA + nB)); if (want > bi) { out.push(b); bi++; } else out.push(a); }
+  return out;
+};
+const HYBRIDS = [
+  { key: 'q3n', name: 'Qwen3-Next-80B-A3B', lab: 'Qwen · Sep 2025', layers: rep(['gdn', 'gdn', 'gdn', 'full'], 12), note: '48 layers = 12 × (3 GDN + 1 gated attention)' },
+  { key: 'q35', name: 'Qwen3.5-397B-A17B', lab: 'Qwen · Feb 2026', layers: rep(['gdn', 'gdn', 'gdn', 'full'], 15), note: '60 layers = 15 × (3 GDN + 1 gated attention)' },
+  { key: 'k3', name: 'Kimi K3', lab: 'Moonshot · 2026', layers: [...rep(['kda', 'kda', 'kda', 'full'], 23), 'full'], note: '93 layers: 69 KDA + 24 gated MLA (order schematic)' },
+  { key: 'mm1', name: 'MiniMax-M1', lab: 'MiniMax · Jun 2025', layers: rep(['light', 'light', 'light', 'light', 'light', 'light', 'light', 'full'], 10), note: '80 layers: 7 lightning-attention : 1 softmax' },
+  { key: 'nem', name: 'Nemotron 3 Nano 30B-A3B', lab: 'NVIDIA · Dec 2025', layers: spread(23, 'mamba', 6, 'full'), note: '23 Mamba-2 + 6 attention mixers (+ 23 MoE layers; order schematic)' },
+  { key: 'g3', name: 'Gemma 3 27B', lab: 'Google · Mar 2025', layers: [...rep(['swa', 'swa', 'swa', 'swa', 'swa', 'full'], 10), 'swa', 'swa'], note: '62 layers: 5 sliding-window (1,024) : 1 global' },
+  { key: 'oss', name: 'gpt-oss-120b', lab: 'OpenAI · Aug 2025', layers: rep(['swa', 'full'], 18), note: '36 layers alternating 128-token window and full attention' },
+  { key: 'mm2', name: 'MiniMax-M2', lab: 'MiniMax · Oct 2025', layers: rep(['full'], 62), note: '62 layers, all full GQA — a deliberate step back' },
+];
+
+const cacheBytesRel = (layers, T, win) => {
+  // relative to an all-full-attention model of the same depth (same per-layer cache width)
+  let s = 0;
+  for (const l of layers) {
+    const c = LAYER_KIND[l].cache;
+    s += c === 'full' ? T : c === 'window' ? Math.min(T, win) : 0;
+  }
+  return s / (layers.length * T);
+};
+
+const Hybrid = () => {
+  const [sel, setSel] = useState('q35');
+  const [logT, setLogT] = useState(Math.log10(262144));
+  const T = Math.round(10 ** logT);
+  return (
+    <Card id="c-hybrid" icon={Network} title="Hybrid stacks: mostly linear, a little softmax" subtitle="Cheap fixed-state layers do the bulk mixing; a few full-attention layers do exact look-ups" accent="sky" index={9} source="Qwen3-Next · Qwen3.5 · Kimi Linear/K3 · MiniMax · Nemotron">
+      <MinSchema>
+        No flagship uses <em>only</em> linear layers. The 2025–26 consensus is about <strong>3 linear : 1 full-attention</strong>: the fixed-state layers carry local and
+        summary information cheaply, and the minority of <Term>softmax attention</Term> layers keep an exact, searchable copy of the context.
+      </MinSchema>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-2">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-neutral-400 pb-1">
+          {Object.entries(LAYER_KIND).map(([k, v]) => (
+            <span key={k} className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: v.color }} />{v.label}</span>
+          ))}
+        </div>
+        {HYBRIDS.map(m => {
+          const rel = cacheBytesRel(m.layers, T, m.key === 'oss' ? 128 : 1024);
+          const on = sel === m.key;
+          return (
+            <button key={m.key} onClick={() => setSel(m.key)} className={`w-full text-left rounded-lg border px-2.5 py-2 transition-colors ${on ? 'border-sky-400/40 bg-sky-500/[0.06]' : 'border-transparent hover:bg-white/[0.03]'}`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span className={`text-[12px] ${on ? 'text-neutral-50' : 'text-neutral-300'}`}>{m.name} <span className="text-[10px] text-neutral-500">· {m.lab}</span></span>
+                <span className="text-[11px] font-mono text-neutral-300">cache {(rel * 100).toFixed(rel < 0.1 ? 1 : 0)}%</span>
+              </div>
+              <div className="mt-1 flex gap-[1.5px] h-3">
+                {m.layers.map((l, i) => (
+                  <motion.div key={i} className="flex-1 rounded-[1px]" style={{ background: LAYER_KIND[l].color }}
+                    initial={{ opacity: 0.2 }} animate={{ opacity: on ? 0.95 : 0.55 }} transition={{ duration: 0.3, delay: on ? i * 0.004 : 0 }} />
+                ))}
+              </div>
+              {on && <div className="mt-1 text-[11px] text-neutral-400">{m.note}</div>}
+            </button>
+          );
+        })}
+        <Slider label="context length (for the cache column)" value={logT} min={3} max={6} step={0.01} onChange={setLogT} fmt={() => `${fmtTok(T)} tokens`} color="accent-sky-400" />
+        <div className="text-[11px] text-neutral-500">"cache" = KV memory relative to the same model with full attention in every layer. Linear/SSM layers count as zero here — their fixed state is negligible at long context.</div>
+      </div>
+
+      <Predict question="If linear layers are so cheap, why does every production hybrid still keep ~25% full-attention layers?">
+        Information theory. A head's state holds <Eq>{String.raw`d^2`}</Eq> numbers; a 1M-token context holds far more than that. Tasks that need an <em>exact</em> earlier token — copying code, quoting a document, multi-hop look-ups — need something that stores the past verbatim. A few full (or sparse) layers are that verbatim store; the linear layers do everything else at O(1).
+      </Predict>
+
+      <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.04] p-3 space-y-1.5">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300">the counterexample · MiniMax</div>
+        <div className="text-[12.5px] text-neutral-300 leading-snug">
+          MiniMax-M1 shipped 7:1 lightning-attention at 456B. Its successor <strong>M2 went back to full attention in all 62 layers</strong>. Their published reasons:
+          hybrids matched on small public benchmarks but fell behind on multi-hop reasoning, retrieval and in-context learning at scale (worse beyond 32K after fine-tuning);
+          retrieval/induction heads form early and can't all be hand-placed; and the serving stack (low-precision state, prefix caching, speculative decoding) was immature for linear layers.
+          Their 2026 follow-up turned to <CrossLink to="c-sparse" recap="Sparse attention keeps the full cache but reads only top-k blocks per query.">sparse</CrossLink> attention rather than linear.
+        </div>
+      </div>
+
+      <Misconception
+        wrong="Hybrid models are a stopgap until linear attention gets good enough to replace softmax everywhere."
+        right="The mix itself is the design point: the ratio is tuned like depth or width. Qwen, Moonshot, AI2 and NVIDIA independently converged on a small minority of full layers."
+        because="The two layer types fail differently — linear layers can't store the past verbatim, softmax layers are expensive at length. Interleaving gets exact retrieval where needed and O(1) mixing elsewhere." />
+
+      <WhenItMatters>Serving 256K–1M contexts or many concurrent agent sessions: a 3:1 hybrid carries roughly a quarter of the KV cache and far fewer attention FLOPs. For short chats the difference is small — the MoE FFNs dominate cost.</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Where to put the full layers.</strong> Most designs interleave them uniformly (every 4th layer), so every depth has access to exact retrieval. NVIDIA's Nemotron hybrids spread a handful of attention layers through a mostly-Mamba stack; IBM's Granite 4.0 runs roughly 9 Mamba-2 layers per attention layer with no positional encoding.
+        </p>
+        <p>
+          <strong>Positional encoding moves too.</strong> Once recurrent layers exist, they already know token order. Kimi Linear drops RoPE from its MLA layers entirely (<CrossLink to="c-kda" recap="KDA: per-channel decay gates act as a learned positional signal.">KDA</CrossLink> carries position), which also removes RoPE-scaling headaches when extending context.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'A 60-layer 3:1 hybrid at 256K context: roughly what share of an all-full model\'s KV cache does it keep?', a: '15 of 60 layers keep a per-token cache → about 25%. The 45 GDN layers each keep a fixed state that doesn\'t grow.' },
+        { q: 'Name two non-quality reasons MiniMax gave for leaving linear attention.', a: 'Linear/compressed states are sensitive to low-precision numerics, and serving features like prefix caching and speculative decoding were not mature for them.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 10 — Gated attention and the attention sink
+// ============================================================================
+
+const GatedAttn = () => {
+  const [gated, setGated] = useState(false);
+  const [idle, setIdle] = useState(0.5);
+  const N = 14;
+  const data = useMemo(() => {
+    const rng = mulberry32(99);
+    return Array.from({ length: N }, (_, i) => {
+      // does this query have anything relevant to look up? (deterministic per row)
+      const r = rng();
+      const target = i > 1 ? 1 + Math.floor(rng() * i) : 0;
+      return { r, target, noise: Array.from({ length: N }, () => rng()) };
+    });
+  }, []);
+  const rows = data.map((d, i) => {
+    const hasTarget = i > 1 && d.r > idle;
+    const logits = Array.from({ length: N }, (_, j) => {
+      if (j > i) return -Infinity;
+      let l = d.noise[j] * 0.8;
+      if (hasTarget && j === d.target) l += 4;
+      // without a gate, idle queries learn to dump mass on token 0 (the sink)
+      if (!gated && !hasTarget && j === 0) l += 4.5;
+      if (!gated && j === 0) l += 1.2;
+      return l;
+    });
+    const mx = Math.max(...logits.filter(isFinite));
+    const ex = logits.map(l => (isFinite(l) ? Math.exp(l - mx) : 0));
+    const Z = ex.reduce((a, b) => a + b, 0);
+    const gate = gated ? (hasTarget ? 0.92 : 0.06) : 1;
+    return { p: ex.map(e => e / Z), hasTarget, gate };
+  });
+  const sinkMass = meanOf(rows.slice(1).map(r => r.p[0]));
+  const cell = 17, L = 8, Tp = 18;
+  const W = L + N * cell + 82, H = Tp + N * cell + 8;
+  return (
+    <Card id="c-gate" icon={Eye} title="Gated attention and the end of the attention sink" subtitle="Multiply each head's output by a sigmoid gate — heads can finally say 'nothing here'" accent="orange" index={10} source="Qiu et al. (Qwen) · NeurIPS 2025 best paper · Qwen3-Next/3.5/3.8 · Kimi K3">
+      <MinSchema>
+        Softmax weights must sum to 1, so a head with nothing to look up still has to attend <em>somewhere</em> — it learns to park that mass on token 0 (the <Term>attention sink</Term>).
+        A per-head sigmoid gate on the output, <Eq>{String.raw`Y = \mathrm{SDPA}(Q,K,V)\odot\gr{\sigma(XW_g)}`}</Eq>, lets the head switch itself off instead.
+      </MinSchema>
+
+      <div className="grid md:grid-cols-[1.2fr_1fr] gap-4 items-start">
+        <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-3 space-y-2">
+          <Tabs options={[{ key: 'plain', label: 'standard attention' }, { key: 'gated', label: 'gated attention' }]} value={gated ? 'gated' : 'plain'} onChange={(k) => setGated(k === 'gated')} color="orange" />
+          <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[300px] max-w-[380px] mx-auto block">
+            <text x={L} y={12} fontSize={10} fill="#a3a3a3">keys → (token 0 at left)</text>
+            <text x={L + N * cell + 8} y={12} fontSize={10} fill="#86efac">gate</text>
+            {rows.map((r, i) => (
+              <g key={i}>
+                {r.p.map((p, j) => (
+                  <rect key={j} x={L + j * cell} y={Tp + i * cell} width={cell - 2} height={cell - 2} rx={2}
+                    fill={j > i ? '#ffffff' : j === 0 && !gated ? '#e879f9' : '#fb923c'} fillOpacity={j > i ? 0.02 : 0.06 + 0.9 * p} />
+                ))}
+                <rect x={L + N * cell + 8} y={Tp + i * cell + 3} width={44 * r.gate} height={cell - 8} rx={2} fill="#4ade80" fillOpacity={gated ? 0.8 : 0.25} />
+                {!r.hasTarget && i > 0 && <text x={L + N * cell + 56} y={Tp + i * cell + 12} fontSize={9} fill="#a3a3a3">idle</text>}
+              </g>
+            ))}
+          </svg></ChartBox>
+          <Slider label="share of queries with nothing to look up" value={idle} min={0} max={1} step={0.05} onChange={setIdle} fmt={v => `${Math.round(v * 100)}%`} color="accent-orange-400" />
+          <div className="text-[10px] text-neutral-500">illustrative head · rows are queries · pink = mass parked on token 0</div>
+        </div>
+        <div className="space-y-2">
+          <Stat label="avg. attention on token 0" value={`${Math.round(sinkMass * 100)}%`} color={sinkMass > 0.3 ? 'text-fuchsia-300' : 'text-emerald-300'} sub={gated ? 'no sink needed — the gate zeroes idle outputs' : 'the sink: a real token hijacked as a trash can'} />
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-[12.5px] text-neutral-300 leading-snug space-y-1.5">
+            <div><span className="text-emerald-300">What the gate buys</span> (per the paper's 15B MoE / 1.7B dense ablations):</div>
+            <ul className="list-disc pl-4 space-y-0.5 text-neutral-400">
+              <li>attention sinks and "massive activations" disappear</li>
+              <li>training tolerates larger learning rates with fewer loss spikes</li>
+              <li>better long-context extrapolation</li>
+              <li>non-linearity between the low-rank <Eq>{String.raw`W_V W_O`}</Eq> maps</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <Block>{String.raw`o_{t,h} = \Big(\sum_{s\le t}\mathrm{softmax}_s\big(\tfrac{q_{t,h}^{\top}k_{s,h}}{\sqrt{d}}\big)\,v_{s,h}\Big)\odot \gr{\sigma\!\big(x_t W_{g,h}\big)},\qquad y_t = W_O\,[o_{t,1};\dots;o_{t,H}]`}</Block>
+
+      <Misconception
+        wrong="Attention sinks are harmless quirks — the model works fine with them."
+        right="They cost real things: huge activations on the sink token break low-precision (FP8/FP4) quantization, and windowed caches that evict token 0 collapse."
+        because="Sinks exist because softmax can't output zero. Gated attention (Qwen) and gpt-oss's learned sink logit are two cures; both let a head legitimately do nothing." />
+
+      <WhenItMatters>Anyone quantizing or serving with windowed caches, and anyone reading architecture diagrams: "gated attention" in Qwen3-Next/3.5/3.8 and "gated MLA" in Kimi K3 are this one sigmoid.</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Where exactly the gate goes.</strong> The paper tried gating at many positions (after Q, K, V, after the output projection…). The winner is element-wise (or head-wise) gating right after scaled-dot-product attention, before <Eq>{String.raw`W_O`}</Eq>, with the gate computed from the layer input <Eq>x_t</Eq> — i.e. query-dependent. It adds ~1–2% parameters per attention layer.
+        </p>
+        <p>
+          <strong>Same trick, other layers.</strong> The GDN layer ends in <Eq>{String.raw`\mathrm{RMSNorm}(o_t)\odot\mathrm{SiLU}(W_g x_t)`}</Eq> — an output gate of the same family. And the LSTM had output gates in 1997: modern architectures keep rediscovering that multiplicative gates are cheap and stabilizing.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'Why can\'t a standard softmax head output exactly zero?', a: 'Its output is a convex combination of value vectors — weights are positive and sum to 1. The best it can do is attend to a token with a near-zero value vector, which is what the sink becomes.' },
+        { q: 'How does the gate help FP8/FP4 quantization?', a: 'Without sinks there are no giant "massive activations" on a few tokens, so tensors have a narrower dynamic range and quantize with less error.' },
       ]} />
     </Card>
   );
