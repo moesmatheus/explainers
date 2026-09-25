@@ -72,7 +72,7 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const ChartBox = ({ children, className = '' }) => (
   <div className={`overflow-x-auto ${className}`}>{children}</div>
 );
-const CHART_CLS = 'w-full min-w-[460px]';
+const CHART_CLS = 'w-full min-w-[460px] max-w-[640px] mx-auto block';
 
 // deterministic RNG for any simulation
 const mulberry32 = (a) => () => {
@@ -750,10 +750,6 @@ const Stub = ({ id, icon, title, index, accent }) => (
   </Card>
 );
 
-const Windows = () => <Stub id="c-window" icon={Scissors} title="Sliding windows, global layers & attention sinks" index={3} accent="orange" />;
-const Sparse = () => <Stub id="c-sparse" icon={Filter} title="Sparse attention: read only what matters" index={4} accent="rose" />;
-const Linear = () => <Stub id="c-linear" icon={Waves} title="Linear attention: the past as a fixed-size matrix" index={5} accent="cyan" />;
-const Delta = () => <Stub id="c-delta" icon={Brain} title="The delta rule: write the error, not the value" index={6} accent="cyan" />;
 const GDN = () => <Stub id="c-gdn" icon={Activity} title="Gated DeltaNet: forget wholesale, edit surgically" index={7} accent="cyan" />;
 const KDA = () => <Stub id="c-kda" icon={Layers} title="Kimi Delta Attention: a forget-rate per channel" index={8} accent="cyan" />;
 const Hybrid = () => <Stub id="c-hybrid" icon={Network} title="Hybrid stacks: mostly linear, a little softmax" index={9} accent="sky" />;
@@ -1034,6 +1030,496 @@ const KVDiet = () => {
       <QA items={[
         { q: 'GQA-8 on a 128-head model caches how many K/V numbers per token per layer (head dim 128)?', a: '2 × 8 × 128 = 2,048. MLA caches 576 — about 3.6× fewer, while keeping 128 distinct heads.' },
         { q: 'Why can\'t MLA just apply RoPE to the latent c?', a: 'RoPE is position-dependent, so it would sit between W_UK and c and block folding W_UK into the query. The decoupled 64-dim RoPE key avoids that.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 3 — Sliding windows, global layers & attention sinks
+// ============================================================================
+
+const MaskGrid = ({ mode, win, sink }) => {
+  const N = 20, cell = 12, pad = 26;
+  const S = pad + N * cell + 4;
+  const allowed = (i, j) => {
+    if (j > i) return false;
+    if (mode === 'full') return true;
+    if (sink && j === 0) return true;
+    return i - j < win;
+  };
+  return (
+    <svg viewBox={`0 0 ${S} ${S}`} className="w-full max-w-[260px] mx-auto block">
+      <text x={pad} y={14} fontSize={10} fill="#a3a3a3">keys →</text>
+      <text x={10} y={pad + 30} fontSize={10} fill="#a3a3a3" transform={`rotate(-90 10 ${pad + 30})`} textAnchor="middle">queries</text>
+      {Array.from({ length: N }, (_, i) => Array.from({ length: N }, (_, j) => {
+        const on = allowed(i, j);
+        const isSink = sink && mode !== 'full' && j === 0 && i - j >= win;
+        return (
+          <rect key={`${i}-${j}`} x={pad + j * cell} y={pad - 6 + i * cell} width={cell - 1.5} height={cell - 1.5} rx={1.5}
+            fill={!on ? '#ffffff' : isSink ? '#e879f9' : mode === 'full' ? '#f97316' : '#fb923c'}
+            fillOpacity={!on ? 0.03 : isSink ? 0.8 : 0.7} />
+        );
+      }))}
+    </svg>
+  );
+};
+
+const Windows = () => {
+  const [mode, setMode] = useState('window');
+  const [sink, setSink] = useState(true);
+  const [ratio, setRatio] = useState(5);
+  const [logW, setLogW] = useState(10); // 2^10 = 1024
+  const [logT, setLogT] = useState(Math.log10(131072));
+  const Wn = 2 ** logW, T = Math.round(10 ** logT);
+  const frac = (ratio * Math.min(Wn, T) + T) / ((ratio + 1) * T);
+  return (
+    <Card id="c-window" icon={Scissors} title="Sliding windows, global layers & attention sinks" subtitle="Most layers only need the last thousand tokens" accent="orange" index={3} source="Gemma 2/3 · gpt-oss · StreamingLLM">
+      <MinSchema>
+        A <Term>sliding window</Term> layer caches only the last <Eq>W</Eq> tokens. Interleave many of them with a few full-attention "global" layers and
+        the cache shrinks by roughly the local:global ratio — the global layers still see everything.
+      </MinSchema>
+
+      <div className="grid md:grid-cols-[1fr_1.3fr] gap-4 items-start">
+        <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-3 space-y-2">
+          <Tabs options={[{ key: 'full', label: 'full causal' }, { key: 'window', label: 'window W=5' }]} value={mode} onChange={setMode} color="orange" />
+          <MaskGrid mode={mode} win={5} sink={sink} />
+          <label className="flex items-center gap-2 text-[11px] text-neutral-300">
+            <input type="checkbox" checked={sink} onChange={(e) => setSink(e.target.checked)} className="accent-fuchsia-400" />
+            keep token 0 visible (<Term>attention sink</Term>)
+          </label>
+          <div className="text-[11px] text-neutral-500 leading-snug">Each row is a query; lit cells are the keys it may read. The window is a diagonal band; the pink column is the sink.</div>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">KV cache vs an all-global model</div>
+          <Slider label="local : global layer ratio" value={ratio} min={0} max={7} onChange={setRatio} fmt={v => `${v} : 1`} color="accent-orange-400" />
+          <Slider label="window W" value={logW} min={7} max={13} onChange={setLogW} fmt={() => `${fmtNum(Wn)} tokens`} color="accent-orange-400" />
+          <Slider label="context length" value={logT} min={3} max={6} step={0.01} onChange={setLogT} fmt={() => `${fmtTok(T)} tokens`} color="accent-orange-400" />
+          <div className="h-5 rounded bg-white/[0.05] overflow-hidden">
+            <motion.div className="h-full bg-orange-400/80" animate={{ width: `${frac * 100}%` }} transition={{ duration: 0.3 }} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Stat label="cache kept" value={`${(frac * 100).toFixed(1)}%`} color="text-orange-300" />
+            <Stat label="saving" value={`${(1 / frac).toFixed(1)}×`} color="text-emerald-300" />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { l: 'Gemma 3 (5:1, 1024)', r: 5, w: 10 },
+              { l: 'gpt-oss (1:1, 128)', r: 1, w: 7 },
+              { l: 'Gemma 2 (1:1, 4096)', r: 1, w: 12 },
+            ].map(p => (
+              <button key={p.l} onClick={() => { setRatio(p.r); setLogW(p.w); }} className="text-[10px] rounded border border-white/10 px-2 py-1 text-neutral-300 hover:bg-white/5">{p.l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Worked title="worked example · Gemma 3 at 128K">
+        <Block>{String.raw`\frac{\num{5}\cdot \num{1024} + \num{131072}}{\num{6}\cdot \num{131072}} = \frac{136{,}192}{786{,}432} \approx \gr{17\%}\ \text{of the all-global cache}`}</Block>
+        <div>Five of every six layers stop growing at 1,024 tokens. The global sixth layer is now ~96% of what's left — the next bottleneck, which is where <CrossLink to="c-sparse" recap="Sparse attention keeps full-length context but reads only the top-k most relevant tokens.">sparse</CrossLink> and <CrossLink to="c-hybrid" recap="Hybrids swap most layers for fixed-state linear attention and keep ~1 in 4 as full softmax.">hybrid</CrossLink> designs come in.</div>
+      </Worked>
+
+      <p className="text-[14px]">
+        <strong className="text-fuchsia-300">Attention sinks.</strong> Softmax must put its probability <em>somewhere</em>. Trained heads learn to dump unneeded mass on the first
+        token — so a naive window that evicts token 0 collapses (StreamingLLM, 2023). Fixes: keep the first few tokens forever, or give each head a learned
+        "attend to nothing" logit, as gpt-oss does:
+      </p>
+      <Block>{String.raw`a_{ts} = \frac{e^{q_t\cdot k_s}}{\hi{e^{\,\sigma_h}} + \sum_{s'\le t} e^{q_t\cdot k_{s'}}}\qquad \text{(learned sink } \sigma_h \text{ per head — weights may sum to } {<}1)`}</Block>
+
+      <Misconception
+        wrong="A 1,024-token window means the model can't use information older than 1,024 tokens."
+        right="Only that layer's direct reach is limited. Global layers read everything, and information hops forward W tokens per stacked window layer."
+        because="The residual stream carries each position's accumulated summary upward; a 1K window over 40 layers has a 40K-token theoretical receptive field." />
+
+      <WhenItMatters>Deciding whether a model's advertised 128K context is cheap to serve: count its global layers — that's where the cache lives.</WhenItMatters>
+
+      <QA items={[
+        { q: 'With a 3:1 local:global ratio and W ≪ T, roughly what fraction of the full cache remains?', a: 'About 1/4 — only the global layer in each group of four keeps a full-length cache.' },
+        { q: 'Why does gpt-oss add a learned sink logit instead of just keeping token 0?', a: 'It lets each head output "nothing" explicitly (weights summing to less than 1) without hijacking a real token as a garbage bin — cleaner for windows and long contexts.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 4 — Sparse attention: DSA, NSA, MoBA
+// ============================================================================
+
+const SPARSE_N = 64;
+const Sparse = () => {
+  const [k, setK] = useState(8);
+  const [noise, setNoise] = useState(0.6);
+  const [seed, setSeed] = useState(3);
+  const data = useMemo(() => {
+    const rng = mulberry32(seed * 7919);
+    // true logits: background + a few "needles" (relevant facts) + recency bump
+    const logits = Array.from({ length: SPARSE_N }, (_, i) => gauss(rng) * 0.8 + (i > SPARSE_N - 5 ? 2 : 0));
+    for (let n = 0; n < 5; n++) logits[Math.floor(rng() * (SPARSE_N - 6))] += 3.2 + rng() * 1.5;
+    const mx = Math.max(...logits);
+    const ex = logits.map(l => Math.exp(l - mx));
+    const Z = ex.reduce((a, b) => a + b, 0);
+    const w = ex.map(e => e / Z);
+    const nrng = mulberry32(seed * 104729 + 1);
+    const idxNoise = Array.from({ length: SPARSE_N }, () => gauss(nrng));
+    return { logits, w, idxNoise };
+  }, [seed]);
+  const indexScore = data.logits.map((l, i) => l + noise * 1.6 * data.idxNoise[i]);
+  const order = indexScore.map((s, i) => [s, i]).sort((a, b) => b[0] - a[0]).slice(0, k).map(x => x[1]);
+  const sel = new Set(order);
+  const captured = order.reduce((a, i) => a + data.w[i], 0);
+  const maxW = Math.max(...data.w);
+  const W = 520, H = 170, L = 8, bw = (W - 2 * L) / SPARSE_N;
+  return (
+    <Card id="c-sparse" icon={Filter} title="Sparse attention: read only what matters" subtitle="A cheap scorer picks the top-k past tokens; exact attention runs on those alone" accent="rose" index={4} source="NSA (2025) · MoBA (2025) · DeepSeek-V3.2 DSA (2025)">
+      <MinSchema>
+        Softmax weights are extremely peaked — a handful of past tokens carry most of the mass. Sparse attention keeps the <em>whole</em> cache but has each query
+        read only its top-<Eq>k</Eq> entries, picked by a tiny indexer. Attention compute drops from <Eq>O(T)</Eq> to <Eq>O(k)</Eq> per token.
+      </MinSchema>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">one query, 64 past tokens · bar = true softmax weight</div>
+          <div className="text-[10px] text-neutral-500">illustrative simulation</div>
+        </div>
+        <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+          {data.w.map((w, i) => {
+            const h = (w / maxW) * (H - 40);
+            return (
+              <g key={i}>
+                <motion.rect x={L + i * bw + 1} width={bw - 2} rx={1.5}
+                  initial={false} animate={{ y: H - 26 - h, height: Math.max(1, h) }} transition={{ duration: 0.3 }}
+                  fill={sel.has(i) ? '#fb7185' : '#525252'} fillOpacity={sel.has(i) ? 0.95 : 0.6} />
+                {sel.has(i) && <circle cx={L + i * bw + bw / 2} cy={H - 16} r={2.5} fill="#fda4af" />}
+              </g>
+            );
+          })}
+          <text x={L} y={H - 2} fontSize={11} fill="#a3a3a3">oldest</text>
+          <text x={W - L} y={H - 2} fontSize={11} fill="#a3a3a3" textAnchor="end">most recent</text>
+          <text x={W / 2} y={H - 2} fontSize={11} fill="#fda4af" textAnchor="middle">● picked by indexer</text>
+        </svg></ChartBox>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Slider label="top-k tokens read" value={k} min={1} max={32} onChange={setK} color="accent-rose-400" />
+          <Slider label="indexer noise (cheaper indexer →)" value={noise} min={0} max={1.5} step={0.05} onChange={setNoise} fmt={v => v.toFixed(2)} color="accent-rose-400" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="attention mass kept" value={`${Math.round(captured * 100)}%`} color={captured > 0.85 ? 'text-emerald-300' : 'text-amber-300'} />
+          <Stat label="tokens read" value={`${k} / ${SPARSE_N}`} color="text-rose-300" />
+          <Stat label="compute" value={`${Math.round((k / SPARSE_N) * 100)}%`} sub="of dense attention" />
+        </div>
+        <button onClick={() => setSeed(s => s + 1)} className="text-[11px] rounded border border-white/15 px-2 py-1 text-neutral-300 hover:bg-white/5 inline-flex items-center gap-1"><RotateCcw className="w-3 h-3" />new query</button>
+      </div>
+
+      <Predict question="DeepSeek-V3.2 uses k = 2,048 regardless of context length. At a 128K-token context, what fraction of the cache does each query's main attention actually read?">
+        <span className="font-mono">2,048 / 131,072 ≈ 1.6%</span>. The indexer still scans all 128K keys, but with a few small FP8 heads — so its <Eq>O(T)</Eq> term has a tiny constant. Main-attention cost becomes flat in context length.
+      </Predict>
+
+      <div className="grid md:grid-cols-3 gap-3">
+        {[
+          { h: 'DSA · DeepSeek-V3.2', c: 'text-rose-300', b: 'Token-level top-k. A "lightning indexer" (few heads, FP8, ReLU scores) ranks every past token; MLA then runs on the top 2,048. Trained by first distilling the indexer toward dense attention, then sparse training.' },
+          { h: 'NSA · DeepSeek', c: 'text-orange-300', b: 'Three branches mixed by learned gates: compressed block summaries (coarse view), top-k selected blocks (fine detail), and a sliding window (local). Block-granular so it maps to GPU tiles.' },
+          { h: 'MoBA · Moonshot', c: 'text-cyan-300', b: 'MoE applied to context: split the past into blocks, score each block by its mean-pooled key, route each query to the top-k blocks (plus its own). Switchable with full attention.' },
+        ].map(x => (
+          <div key={x.h} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <div className={`text-[11px] uppercase tracking-widest ${x.c}`}>{x.h}</div>
+            <div className="mt-1 text-[12.5px] text-neutral-300 leading-snug">{x.b}</div>
+          </div>
+        ))}
+      </div>
+
+      <Block>{String.raw`I_{t,s} = \sum_{j=1}^{H^I} w_{t,j}\,\mathrm{ReLU}\!\big(q^{I}_{t,j}\cdot k^{I}_{s}\big)\qquad \mathcal{S}_t = \operatorname{top\text{-}k}_s\, I_{t,s}\qquad u_t = \mathrm{Attn}\big(q_t,\ \{k_s, v_s\}_{s\in\mathcal{S}_t}\big)`}</Block>
+
+      <Misconception
+        wrong="Sparse attention saves memory like a sliding window does."
+        right="DSA/NSA/MoBA mostly save compute and bandwidth. The full cache still has to be stored, because any old token might be picked later."
+        because="Top-k is chosen per query, per step. You can't evict what a future query might need — memory savings need latent (MLA), windows, or linear state." />
+
+      <WhenItMatters>Long prefill and long-context decode costs (agents re-reading 100K-token histories). DeepSeek cut API prices sharply when V3.2 shipped DSA — that's this card, priced in.</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Why not just learn top-k end to end?</strong> Top-k is non-differentiable. DSA sidesteps it: the indexer is trained with a KL loss toward the dense attention distribution
+          (summed over heads), while the main model trains only through the selected tokens. NSA instead makes selection block-level and lets gradients flow through the compressed branch
+          that produces the block scores.
+        </p>
+        <p>
+          <strong>The trend continues.</strong> DeepSeek's later designs compress the cache <em>and</em> sparsify reads — see the sibling <CrossLink to="deepseek-v4" recap="Sibling explainer: DeepSeek-V4's compressed-sparse attention (CSA/HCA), mHC residuals, Muon and FP4 training.">DeepSeek-V4 explainer</CrossLink>.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'In the simulation, why does a noisier indexer need a larger k for the same attention mass?', a: 'Noise makes it rank some irrelevant tokens above true needles; a bigger k is the safety margin that still catches the needles.' },
+        { q: 'Why do NSA and MoBA select blocks rather than individual tokens?', a: 'Contiguous blocks map to GPU memory tiles, so the gather is fast. Token-level selection (DSA) needs a carefully engineered kernel to be efficient.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// Shared associative-memory simulator (cards 5–8). Real math, tiny sizes:
+// state S is d_v × d_k; write rules act on (k, v) pairs; read is S·q.
+// ============================================================================
+
+const unitVec = (rng, d) => {
+  const v = Array.from({ length: d }, () => gauss(rng));
+  const n = Math.hypot(...v) || 1;
+  return v.map(x => x / n);
+};
+const readS = (S, k) => S.map(row => row.reduce((a, x, j) => a + x * k[j], 0));
+const cosSim = (a, b) => {
+  let s = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { s += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return s / Math.sqrt(na * nb + 1e-12);
+};
+// writes: [{k, v, a?}] — a = decay gate for that step (scalar or per-channel array over k-dims)
+const runMemory = (rule, writes, { d = 16, beta = 1, alpha = 1 } = {}) => {
+  const S = Array.from({ length: d }, () => new Array(d).fill(0));
+  for (const w of writes) {
+    const a = w.a ?? alpha;
+    if (Array.isArray(a)) { for (let i = 0; i < d; i++) for (let j = 0; j < d; j++) S[i][j] *= a[j]; }
+    else if (a !== 1) { for (let i = 0; i < d; i++) for (let j = 0; j < d; j++) S[i][j] *= a; }
+    if (rule === 'add') {
+      for (let i = 0; i < d; i++) for (let j = 0; j < d; j++) S[i][j] += w.v[i] * w.k[j];
+    } else {
+      const p = readS(S, w.k);
+      for (let i = 0; i < d; i++) { const e = beta * (w.v[i] - p[i]); for (let j = 0; j < d; j++) S[i][j] += e * w.k[j]; }
+    }
+  }
+  return S;
+};
+const MEM_D = 16;
+const recallColor = (c) => (c >= 0.8 ? '#34d399' : c >= 0.5 ? '#fbbf24' : '#fb7185');
+const meanOf = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+
+// ============================================================================
+// CARD 5 — Linear attention: the past as a fixed-size matrix
+// ============================================================================
+
+const LIN_D = 8;
+const Linear = () => {
+  const [ref, enterKey] = useEnterKey();
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(1);
+  const acc = useRef(0);
+  const stream = useMemo(() => {
+    const rng = mulberry32(42);
+    return Array.from({ length: 64 }, () => ({ k: unitVec(rng, LIN_D), v: unitVec(rng, LIN_D) }));
+  }, []);
+  useEffect(() => { setT(0); acc.current = 0; setPlaying(true); }, [enterKey]);
+  useTicker(playing, (dt) => {
+    acc.current += dt * 3 * speed;
+    if (acc.current >= 1) { acc.current = 0; setT(x => (x >= 63 ? 63 : x + 1)); }
+  });
+  useEffect(() => { if (t >= 63) setPlaying(false); }, [t]);
+  const S = useMemo(() => runMemory('add', stream.slice(0, t + 1), { d: LIN_D }), [t, stream]);
+  const mx = Math.max(1e-6, ...S.flat().map(Math.abs));
+  const cell = 22;
+  const kvNums = 2 * 128 * (t + 1), stateNums = 128 * 128;
+  return (
+    <Card id="c-linear" icon={Waves} title="Linear attention: the past as a fixed-size matrix" subtitle="Drop the softmax and attention turns into an RNN" accent="cyan" index={5} source="Katharopoulos et al. 2020 · RetNet · Mamba-2">
+      <MinSchema>
+        Remove the softmax and the sum over the past factorizes: <Eq>{String.raw`o_t = \st{S_t}\, q_t`}</Eq> with <Eq>{String.raw`\st{S_t} = \st{S_{t-1}} + v_t k_t^{\top}`}</Eq>.
+        The whole history lives in one <Eq>d\times d</Eq> matrix — constant memory and constant time per token, however long the context.
+      </MinSchema>
+
+      <Block>{String.raw`\underbrace{o_t=\sum_{s\le t}\frac{\at{e^{q_t^{\top}k_s}}}{\sum_{s'}\at{e^{q_t^{\top}k_{s'}}}}\,v_s}_{\text{softmax: keep every } k_s, v_s}
+\;\;\xrightarrow{\;\text{drop } e^{(\cdot)}\;}\;\;
+o_t=\sum_{s\le t}(q_t^{\top}k_s)\,v_s=\Big(\underbrace{\sum_{s\le t} v_s k_s^{\top}}_{\st{S_t}}\Big)\,q_t`}</Block>
+
+      <div ref={ref} className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">token {t + 1} of 64 · head size shown: {LIN_D}</div>
+          <PlayControls playing={playing} setPlaying={setPlaying} speed={speed} setSpeed={setSpeed} onReset={() => { setT(0); setPlaying(true); }} />
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <div className="text-[11px] text-orange-300 mb-1.5">softmax · the KV cache grows</div>
+            <div className="flex flex-wrap gap-[3px] min-h-[120px] content-start">
+              {Array.from({ length: t + 1 }, (_, i) => (
+                <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-3 h-6 rounded-sm bg-orange-400/70" />
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-neutral-400">one K and V column per token → <span className="font-mono text-orange-300">O(T)</span> memory, and every new query scans all of it</div>
+          </div>
+          <div>
+            <div className="text-[11px] text-cyan-300 mb-1.5">linear · the state matrix <Eq>{String.raw`S_t`}</Eq> just changes</div>
+            <svg viewBox={`0 0 ${LIN_D * cell} ${LIN_D * cell}`} className="w-[176px] h-[176px] block">
+              {S.map((row, i) => row.map((x, j) => (
+                <rect key={`${i}-${j}`} x={j * cell + 1} y={i * cell + 1} width={cell - 2} height={cell - 2} rx={2}
+                  fill={x >= 0 ? '#22d3ee' : '#f472b6'} fillOpacity={0.08 + 0.85 * Math.abs(x) / mx} />
+              )))}
+            </svg>
+            <div className="mt-2 text-[11px] text-neutral-400">each token adds one outer product <Eq>{String.raw`v_t k_t^\top`}</Eq> → <span className="font-mono text-cyan-300">O(1)</span> memory</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Stat label="KV cache · real head (d=128)" value={fmtNum(kvNums)} sub="numbers per head per layer" color="text-orange-300" />
+          <Stat label="state · real head (d=128)" value={fmtNum(stateNums)} sub="fixed, forever" color="text-cyan-300" />
+        </div>
+      </div>
+
+      <Predict question="With a head dimension of 128, after how many tokens does a linear-attention state (128 × 128) become smaller than that head's KV cache (2 × 128 per token)?">
+        <span className="font-mono">128² ÷ (2·128) = 64 tokens.</span> Past 64 tokens the state is cheaper, and at 1M tokens it is ~16,000× smaller. The catch: the cache stored the past <em>exactly</em>; the state is a lossy superposition.
+      </Predict>
+
+      <Misconception
+        wrong="Linear attention is a sliding window with extra steps — it just forgets old tokens."
+        right="Plain linear attention forgets nothing: every token stays superimposed in S forever. Its failure is the opposite — interference."
+        because={<>A <Eq>d\times d</Eq> matrix can hold only about <Eq>d</Eq> clean key→value associations. Beyond that, reads return blends of many stored values. The next card fixes <em>how</em> we write; the one after adds a way to forget.</>} />
+
+      <WhenItMatters>Anyone serving 100K–1M-token contexts: a layer with a fixed-size state has no KV cache to page, shard or evict. That's why Qwen, Kimi, NVIDIA and IBM all put these layers in production models.</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Kernel view.</strong> Softmax attention uses the similarity <Eq>{String.raw`\exp(q^\top k)`}</Eq>; any similarity that factors as <Eq>{String.raw`\phi(q)^\top\phi(k)`}</Eq> allows the reordering above. Early work chose feature maps <Eq>\phi</Eq> (elu+1, random features); modern layers use the identity map on L2-normalized <Eq>q,k</Eq> plus a short causal convolution, and rely on gating and the delta rule for quality.
+        </p>
+        <p>
+          <strong>Training is still parallel.</strong> A token-by-token RNN would waste GPUs. The <Term>chunkwise parallel</Term> form splits the sequence into chunks of ~64: inside a chunk it runs ordinary (masked) matrix-multiply attention; between chunks it passes <Eq>S</Eq>. Cost is <Eq>{String.raw`O(T\,C\,d + T d^2)`}</Eq> — linear in <Eq>T</Eq> and tensor-core friendly.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'What does it cost to generate token 1,000,001 with a linear-attention layer vs a softmax layer?', a: 'Linear: one d×d state update and one matrix-vector read — same as token 2. Softmax: a dot product against all 1,000,000 cached keys.' },
+        { q: 'Plain linear attention underperforms softmax. Is it forgetting too much or too little?', a: 'Too little, in the wrong way: everything is summed into S with equal weight, so associations interfere. Gates (forgetting) and the delta rule (overwriting) are the two fixes.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 6 — The delta rule: write the error, not the value
+// ============================================================================
+
+const deltaExperiment = (N, updFrac, beta, seed) => {
+  const rng = mulberry32(seed * 2654435761);
+  const keys = Array.from({ length: N }, () => unitVec(rng, MEM_D));
+  const first = keys.map(() => unitVec(rng, MEM_D));
+  const writes = keys.map((k, i) => ({ k, v: first[i] }));
+  const latest = [...first];
+  const nu = Math.round(N * updFrac);
+  for (let i = 0; i < nu; i++) { const nv = unitVec(rng, MEM_D); writes.push({ k: keys[i], v: nv }); latest[i] = nv; }
+  const out = {};
+  for (const rule of ['add', 'delta']) {
+    const S = runMemory(rule, writes, { d: MEM_D, beta });
+    out[rule] = keys.map((k, i) => cosSim(readS(S, k), latest[i]));
+  }
+  return { ...out, nu };
+};
+
+const Delta = () => {
+  const [N, setN] = useState(10);
+  const [upd, setUpd] = useState(0.3);
+  const [beta, setBeta] = useState(1);
+  const [seed, setSeed] = useState(1);
+  const ex = useMemo(() => deltaExperiment(N, upd, beta, seed), [N, upd, beta, seed]);
+  const sweep = useMemo(() => {
+    const Ns = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32];
+    return Ns.map(n => {
+      const r = { n, add: 0, delta: 0 };
+      for (let s = 1; s <= 6; s++) { const e = deltaExperiment(n, upd, beta, 100 + s); r.add += meanOf(e.add) / 6; r.delta += meanOf(e.delta) / 6; }
+      return r;
+    });
+  }, [upd, beta]);
+  const rows = [
+    { key: 'add', label: 'additive (linear attn)', data: ex.add, c: 'text-orange-300' },
+    { key: 'delta', label: 'delta rule (DeltaNet)', data: ex.delta, c: 'text-cyan-300' },
+  ];
+  const W = 460, H = 180, L = 40, R = 12, Tp = 12, Bm = 34;
+  const sx = (n) => L + ((n - 2) / 30) * (W - L - R);
+  const sy = (v) => Tp + (1 - clamp(v, 0, 1)) * (H - Tp - Bm);
+  const line = (key) => 'M' + sweep.map(r => `${sx(r.n).toFixed(1)},${sy(r[key]).toFixed(1)}`).join('L');
+  return (
+    <Card id="c-delta" icon={Brain} title="The delta rule: write the error, not the value" subtitle="Before storing v under key k, subtract what the memory already says about k" accent="cyan" index={6} source="Widrow–Hoff 1960 · Schlag et al. 2021 · DeltaNet (Yang et al., NeurIPS 2024)">
+      <MinSchema>
+        Additive memory piles new values on top of old ones. The <Term>delta rule</Term> first reads the current prediction <Eq>{String.raw`\st{S}k_t`}</Eq>, then writes only the
+        correction <Eq>{String.raw`\beta_t\,(v_t-\st{S}k_t)`}</Eq>. Updating a fact <em>replaces</em> it instead of averaging it with the stale version.
+      </MinSchema>
+
+      <Block>{String.raw`\st{S_t} = \st{S_{t-1}} + \beta_t\big(v_t - \st{S_{t-1}}k_t\big)k_t^{\top} \;=\; \st{S_{t-1}}\big(I-\beta_t k_t k_t^{\top}\big) + \beta_t v_t k_t^{\top}`}</Block>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">store N facts in a 16×16 memory, then update some of them · bar = recall of the latest value</div>
+          <div className="text-[10px] text-neutral-500">live simulation, real vectors</div>
+        </div>
+        {rows.map(r => (
+          <div key={r.key}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
+              <span className={r.c}>{r.label}</span>
+              <span className="text-neutral-400">
+                all facts <span className="font-mono text-neutral-100">{meanOf(r.data).toFixed(2)}</span> · updated facts{' '}
+                <span className="font-mono text-neutral-100">{ex.nu ? meanOf(r.data.slice(0, ex.nu)).toFixed(2) : '—'}</span>
+              </span>
+            </div>
+            <div className="mt-1 flex items-end gap-[3px] h-14">
+              {r.data.map((c, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full min-w-0">
+                  <motion.div className="w-full rounded-sm" style={{ background: recallColor(c) }}
+                    initial={false} animate={{ height: `${Math.max(4, clamp(c, 0, 1) * 100)}%` }} transition={{ duration: 0.3 }} />
+                  <div className={`mt-0.5 h-1 w-1 rounded-full ${i < ex.nu ? 'bg-fuchsia-300' : 'bg-transparent'}`} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="text-[10px] text-neutral-500 flex flex-wrap gap-x-3">
+          <span><span className="inline-block w-2 h-2 rounded-sm bg-emerald-400 mr-1" />recall ≥ 0.8</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm bg-amber-400 mr-1" />0.5–0.8</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm bg-rose-400 mr-1" />&lt; 0.5</span>
+          <span><span className="inline-block w-1.5 h-1.5 rounded-full bg-fuchsia-300 mr-1" />fact was overwritten later</span>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <Slider label="facts stored (N)" value={N} min={2} max={32} onChange={setN} />
+          <Slider label="share later updated" value={upd} min={0} max={0.6} step={0.05} onChange={setUpd} fmt={v => `${Math.round(v * 100)}%`} />
+          <Slider label="write strength β" value={beta} min={0.1} max={1} step={0.05} onChange={setBeta} fmt={v => v.toFixed(2)} />
+        </div>
+        <button onClick={() => setSeed(s => s + 1)} className="text-[11px] rounded border border-white/15 px-2 py-1 text-neutral-300 hover:bg-white/5 inline-flex items-center gap-1"><RotateCcw className="w-3 h-3" />new random facts</button>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4">
+        <div className="text-[11px] uppercase tracking-widest text-neutral-400 mb-1">mean recall vs number of facts (avg of 6 runs)</div>
+        <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+          {[0, 0.5, 1].map(v => (
+            <g key={v}>
+              <line x1={L} x2={W - R} y1={sy(v)} y2={sy(v)} stroke="#fff" strokeOpacity={0.07} />
+              <text x={L - 6} y={sy(v) + 4} fontSize={11} fill="#a3a3a3" textAnchor="end">{v.toFixed(1)}</text>
+            </g>
+          ))}
+          <line x1={sx(16)} x2={sx(16)} y1={Tp} y2={H - Bm} stroke="#e879f9" strokeOpacity={0.5} strokeDasharray="4 4" />
+          <text x={sx(16) + 4} y={Tp + 10} fontSize={11} fill="#f0abfc">N = d = 16</text>
+          <path d={line('add')} fill="none" stroke="#fdba74" strokeWidth={2} />
+          <path d={line('delta')} fill="none" stroke="#67e8f9" strokeWidth={2} />
+          <line x1={sx(N)} x2={sx(N)} y1={Tp} y2={H - Bm} stroke="#fff" strokeOpacity={0.3} />
+          {[2, 8, 16, 24, 32].map(n => <text key={n} x={sx(n)} y={H - Bm + 15} fontSize={11} fill="#a3a3a3" textAnchor="middle">{n}</text>)}
+          <text x={(L + W - R) / 2} y={H - 4} fontSize={11} fill="#a3a3a3" textAnchor="middle">facts stored</text>
+          <text x={W - R} y={sy(sweep[sweep.length - 1].add) - 6} fontSize={11} fill="#fdba74" textAnchor="end">additive</text>
+          <text x={W - R} y={sy(sweep[sweep.length - 1].delta) + 14} fontSize={11} fill="#67e8f9" textAnchor="end">delta</text>
+        </svg></ChartBox>
+        <div className="text-[11px] text-neutral-400 mt-1">Below capacity the delta rule wins, and wins hugely on updated facts. Far past <Eq>N=d</Eq> both are saturated — the delta rule then favors the <em>newest</em> facts, additive memory blurs all of them equally.</div>
+      </div>
+
+      <Worked title="worked example · one delta step by hand">
+        <div>Memory currently maps key <Eq>{String.raw`k=(1,0)`}</Eq> to <Eq>{String.raw`\st{S}k = \num{3}`}</Eq> (the old value). New fact: <Eq>{String.raw`v=\num{5}`}</Eq>, with <Eq>{String.raw`\beta=\num{1}`}</Eq>.</div>
+        <Block>{String.raw`\text{error} = v - \st{S}k = \num{5}-\num{3} = \num{2} \;\Rightarrow\; \st{S}_{\text{new}}k = \num{3} + \num{1}\cdot\num{2}\cdot\underbrace{k^{\top}k}_{=1} = \gr{5}\quad\text{(additive would give } \hi{3+5=8}\text{)}`}</Block>
+      </Worked>
+
+      <Misconception
+        wrong="The delta rule is a heuristic bolted onto linear attention."
+        right={<>It is exactly one step of online gradient descent on the regression loss <Eq>{String.raw`\tfrac12\lVert \st{S}k_t - v_t\rVert^2`}</Eq> with learning rate <Eq>{String.raw`\beta_t`}</Eq>.</>}
+        because="The gradient of that loss w.r.t. S is (Sk − v)kᵀ. Plain linear attention is the same step on a linear loss −⟨Sk, v⟩, which never says 'you already know this'. This 'memory as test-time regression' view is what unifies DeltaNet, Titans and friends." />
+
+      <Deeper>
+        <p>
+          <strong>Why the Householder shape matters.</strong> <Eq>{String.raw`I-\beta_t k_tk_t^{\top}`}</Eq> is a generalized Householder transform (for <Eq>{String.raw`\beta_t=2`}</Eq>, a reflection). Products of these can be batched with the WY representation, which is what made DeltaNet trainable chunkwise on GPUs (Yang et al., 2024). With <Eq>{String.raw`\beta\in(0,2)`}</Eq> the transition is non-expansive, so the recurrence stays stable over a million steps.
+        </p>
+        <p>
+          <strong>Keys must be normalized.</strong> The update subtracts <Eq>{String.raw`\beta\,(Sk)k^\top`}</Eq>; if <Eq>{String.raw`\lVert k\rVert`}</Eq> drifts, the effective step <Eq>{String.raw`\beta\lVert k\rVert^2`}</Eq> can overshoot. Production layers L2-normalize <Eq>q</Eq> and <Eq>k</Eq> per head and produce <Eq>{String.raw`\beta_t=\sigma(W_\beta x_t)`}</Eq>.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'A fact is written twice with different values. What does additive memory return for its key?', a: 'Roughly the sum (a blend) of both values, plus interference. The delta rule returns (close to) the newer value, because its second write only adds the difference.' },
+        { q: 'What does β = 0 mean for a token? And β = 1?', a: 'β = 0: skip writing this token entirely. β = 1: fully overwrite the association for this key. The model learns β per token, so it can choose what is worth remembering.' },
       ]} />
     </Card>
   );
