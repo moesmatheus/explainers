@@ -750,8 +750,6 @@ const Stub = ({ id, icon, title, index, accent }) => (
   </Card>
 );
 
-const Train = () => <Stub id="c-train" icon={Rocket} title="Training tricks: Muon, FP8/MXFP4, multi-token prediction" index={13} accent="emerald" />;
-const Lineup = () => <Stub id="c-lineup" icon={Table2} title="Spec sheets: the flagship open models, decoded" index={14} accent="fuchsia" />;
 const Future = () => <Stub id="c-future" icon={Telescope} title="Where it's going — and what got walked back" index={15} accent="amber" />;
 const Trails = () => <Stub id="c-trails" icon={MapIcon} title="Next trails" index={16} accent="violet" />;
 
@@ -2249,6 +2247,278 @@ const Balance = () => {
       <QA items={[
         { q: 'Does the bias b_i change the output mixture for a token?', a: 'No — it only affects which experts make the top-k. The gate weights use the raw scores s_{t,i}, so the model\'s function is not distorted by the balancing term.' },
         { q: 'What happens in the simulation if γ is too large?', a: 'Biases overshoot: popular experts get pushed below average, then back up — the imbalance line oscillates instead of settling. Too small and it converges slowly.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 13 — Training tricks: Muon/MuonClip · FP8/MXFP4 · MTP
+// ============================================================================
+
+// Muon's quintic Newton–Schulz coefficients (Keller Jordan's reference implementation).
+const NS = [3.4445, -4.7750, 2.0315];
+const nsStep = (x) => NS[0] * x + NS[1] * x ** 3 + NS[2] * x ** 5;
+const FP4_GRID = [0, 0.5, 1, 1.5, 2, 3, 4, 6];
+const toFP4 = (x) => { const a = Math.abs(x); let best = 0; for (const g of FP4_GRID) if (Math.abs(g - a) < Math.abs(best - a)) best = g; return Math.sign(x) * best; };
+const quantize = (xs, block) => {
+  const out = new Array(xs.length);
+  for (let s = 0; s < xs.length; s += block) {
+    const chunk = xs.slice(s, s + block);
+    const mx = Math.max(...chunk.map(Math.abs)) || 1;
+    const scale = 2 ** Math.ceil(Math.log2(mx / 6)); // power-of-two (E8M0) scale, as in MXFP4
+    chunk.forEach((x, i) => { out[s + i] = toFP4(x / scale) * scale; });
+  }
+  return out;
+};
+
+const MuonPanel = () => {
+  const [iters, setIters] = useState(0);
+  const sv0 = useMemo(() => {
+    const raw = Array.from({ length: 16 }, (_, i) => 1 / (i + 1) ** 1.3);
+    const fro = Math.hypot(...raw);
+    return raw.map(x => x / fro);
+  }, []);
+  const sv = sv0.map(x => { let y = x; for (let i = 0; i < iters; i++) y = nsStep(y); return y; });
+  const mx = 1.3;
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px]">
+        AdamW scales each weight's step separately. <Term>Muon</Term> treats a weight matrix as a matrix: it takes the momentum <Eq>M</Eq> and replaces it with the nearest
+        orthogonal matrix <Eq>{String.raw`UV^{\top}`}</Eq> (from <Eq>{String.raw`M=U\Sigma V^{\top}`}</Eq>) — every singular direction gets the same step size, so rare directions aren't drowned by dominant ones.
+        It never computes an SVD: a few Newton–Schulz polynomial iterations push all singular values toward 1.
+      </p>
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-2">
+        <div className="text-[11px] uppercase tracking-widest text-neutral-400">singular values of the update · after {iters} Newton–Schulz step{iters === 1 ? '' : 's'}</div>
+        <div className="flex items-end gap-1 h-28">
+          {sv.map((v, i) => (
+            <div key={i} className="flex-1 h-full flex items-end">
+              <motion.div className="w-full rounded-t-sm bg-emerald-400/80" initial={false} animate={{ height: `${clamp(v / mx, 0, 1) * 100}%` }} transition={{ duration: 0.35 }} />
+            </div>
+          ))}
+        </div>
+        <Slider label="Newton–Schulz iterations" value={iters} min={0} max={5} onChange={setIters} color="accent-emerald-400" />
+        <div className="text-[11px] text-neutral-400">
+          largest/smallest singular value: <span className="font-mono text-emerald-300">{(Math.max(...sv) / Math.max(1e-6, Math.min(...sv))).toFixed(1)}×</span>
+          {' '}· Muon uses 5 steps of <Eq>{String.raw`x\mapsto \num{3.4445}x \num{-4.775}x^3 + \num{2.0315}x^5`}</Eq> applied as <Eq>{String.raw`X\mapsto aX+b(XX^\top)X+c(XX^\top)^2X`}</Eq>. The coefficients are tuned for speed, not exactness: values land in a ~0.7–1.2 band rather than exactly 1, which works just as well.
+        </div>
+      </div>
+      <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.04] p-3 text-[12.5px] text-neutral-300 leading-snug">
+        <span className="text-emerald-300 font-medium">MuonClip (Kimi K2).</span> At trillion scale Muon let attention logits grow until training spiked. QK-Clip caps them: after each step, any head whose largest logit <Eq>{String.raw`S^h_{\max}`}</Eq> exceeds <Eq>\tau</Eq> gets
+        <Eq>{String.raw`W_q^h \leftarrow W_q^h\sqrt{\tau/S^h_{\max}},\ W_k^h \leftarrow W_k^h\sqrt{\tau/S^h_{\max}}`}</Eq>. Kimi K2 pre-trained on 15.5T tokens with zero loss spikes. Muon or a variant now trains Kimi K2/K3, GLM-4.5, DeepSeek-V4 and Qwen3.8-Flash-Next.
+      </div>
+    </div>
+  );
+};
+
+const PrecisionPanel = () => {
+  const [outlier, setOutlier] = useState(20);
+  const xs = useMemo(() => { const r = mulberry32(11); return Array.from({ length: 128 }, () => gauss(r)); }, []);
+  const vals = xs.map((x, i) => (i === 37 ? outlier : x));
+  const err = (q) => Math.sqrt(meanOf(vals.map((v, i) => (i === 37 ? 0 : (v - q[i]) ** 2)))) / Math.sqrt(meanOf(vals.map((v, i) => (i === 37 ? 0 : v * v))));
+  const zeros = (q) => q.filter((v, i) => i !== 37 && v === 0).length / 127;
+  const schemes = [
+    { l: 'per-tensor scale', q: quantize(vals, 128), c: 'text-rose-300' },
+    { l: 'per-block of 32 (MXFP4)', q: quantize(vals, 32), c: 'text-amber-300' },
+    { l: 'per-block of 16 (NVFP4-style)', q: quantize(vals, 16), c: 'text-emerald-300' },
+  ];
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px]">
+        Fewer bits per number = more math per second and fewer bytes to move. DeepSeek-V3 trained mostly in <Term>FP8</Term> with fine-grained (tile/block) scaling; gpt-oss ships its experts in <Term>MXFP4</Term> so the 120B model fits one 80 GB GPU; Kimi K3 trains with MXFP4 weights (quantization-aware) and NVIDIA pre-trains Nemotron 3 in NVFP4.
+        FP4 (E2M1) has only 8 magnitudes — <span className="font-mono">0, 0.5, 1, 1.5, 2, 3, 4, 6</span> — so the trick is the <em>scale</em>: one outlier ruins a shared scale.
+      </p>
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-2">
+        <div className="text-[11px] uppercase tracking-widest text-neutral-400">quantize 128 Gaussian activations + one outlier to FP4</div>
+        <Slider label="outlier magnitude (× a typical value)" value={outlier} min={1} max={200} onChange={setOutlier} fmt={v => `${v}×`} color="accent-emerald-400" />
+        {schemes.map(s => {
+          const e = err(s.q), z = zeros(s.q);
+          return (
+            <div key={s.l} className="flex items-center gap-3 text-[12px]">
+              <div className={`w-44 shrink-0 ${s.c}`}>{s.l}</div>
+              <div className="flex-1 h-3 rounded bg-white/[0.05] overflow-hidden">
+                <motion.div className="h-full bg-rose-400/70" initial={false} animate={{ width: `${clamp(e, 0, 1) * 100}%` }} transition={{ duration: 0.3 }} />
+              </div>
+              <div className="w-40 shrink-0 text-right font-mono text-neutral-300 text-[11px]">err {(e * 100).toFixed(0)}% · {(z * 100).toFixed(0)}% → 0</div>
+            </div>
+          );
+        })}
+        <div className="text-[11px] text-neutral-400">Small blocks confine the outlier's damage to its own 16–32 neighbours. This is also why <CrossLink to="c-gate" recap="Gated attention removes attention sinks and the 'massive activations' that come with them.">removing massive activations</CrossLink> matters for low-precision training.</div>
+      </div>
+    </div>
+  );
+};
+
+const MTPPanel = () => {
+  const [p, setP] = useState(0.85);
+  const [n, setN] = useState(1);
+  const expected = (1 - p ** (n + 1)) / (1 - p);
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px]">
+        <Term>MTP</Term> adds small modules that predict token <Eq>t+2</Eq> (and beyond) from the main model's hidden state. In training it densifies the signal ("plan a bit ahead");
+        at inference the same modules become a free draft model for <Term>speculative decoding</Term>. DeepSeek-V3 reported 85–90% acceptance for its one extra token, ≈1.8× decode speed; Qwen3-Next and GLM-4.5+ ship MTP layers too.
+      </p>
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-2">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Slider label="acceptance rate per drafted token" value={p} min={0.3} max={0.98} step={0.01} onChange={setP} fmt={v => `${Math.round(v * 100)}%`} color="accent-emerald-400" />
+          <Slider label="tokens drafted per step" value={n} min={1} max={6} onChange={setN} color="accent-emerald-400" />
+        </div>
+        <Block>{String.raw`\mathbb{E}[\text{tokens per big-model step}] = \sum_{i=0}^{n} p^{i} = \frac{1-p^{\,n+1}}{1-p} = \frac{1-\num{${p.toFixed(2)}}^{${n + 1}}}{1-\num{${p.toFixed(2)}}} = \gr{${expected.toFixed(2)}}`}</Block>
+        <div className="flex gap-1 flex-wrap">
+          {Array.from({ length: n + 1 }, (_, i) => (
+            <div key={i} className="rounded px-2 py-1 text-[11px] font-mono border border-emerald-400/30" style={{ background: `rgba(52,211,153,${0.08 + 0.5 * p ** i})` }}>
+              {i === 0 ? 'verified' : `draft ${i}: ${Math.round(p ** i * 100)}%`}
+            </div>
+          ))}
+        </div>
+        <div className="text-[11px] text-neutral-400">The first token is always produced by the big model; each drafted token survives only if all earlier drafts did. Long drafts pay off only when acceptance is high.</div>
+      </div>
+    </div>
+  );
+};
+
+const Train = () => {
+  const [tab, setTab] = useState('muon');
+  return (
+    <Card id="c-train" icon={Rocket} title="Training tricks: Muon, FP8/MXFP4, multi-token prediction" subtitle="Bill ③ — the cost of learning — attacked from three sides" accent="emerald" index={13} source="Moonshot · DeepSeek · OpenAI · NVIDIA">
+      <MinSchema>
+        Three independent levers: a better <em>direction</em> per step (Muon orthogonalizes updates — about 2× token-efficiency vs AdamW in Moonshot's tests), cheaper <em>arithmetic</em> per step
+        (8- and 4-bit formats with block scales), and more <em>signal</em> per token (predict several tokens ahead — which later doubles as speculative decoding).
+      </MinSchema>
+      <Tabs options={[{ key: 'muon', label: 'Muon & MuonClip' }, { key: 'prec', label: 'FP8 · MXFP4' }, { key: 'mtp', label: 'Multi-token prediction' }]} value={tab} onChange={setTab} color="emerald" />
+      <AnimatePresence mode="wait">
+        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+          {tab === 'muon' && <MuonPanel />}
+          {tab === 'prec' && <PrecisionPanel />}
+          {tab === 'mtp' && <MTPPanel />}
+        </motion.div>
+      </AnimatePresence>
+
+      <Misconception
+        wrong="Low-precision training is just 'use smaller numbers' — a free 2× once the hardware supports it."
+        right="The format is the easy part; the scaling scheme is the hard part. FP8/FP4 training works only with fine-grained block scales, high-precision accumulation, and care for outliers."
+        because="A handful of huge values (sink tokens, massive activations, spiky gradients) otherwise set the scale for everything else, and most numbers round to zero — as the FP8 · MXFP4 tab shows." />
+
+      <WhenItMatters>Bill ③ is paid once but decides who can afford to train at all: DeepSeek-V3's full run was 2.788M H800 GPU-hours (≈ $5.6M at $2/hr) thanks to FP8 + MoE + MTP.</WhenItMatters>
+
+      <QA items={[
+        { q: 'Why does Muon apply only to 2-D hidden weight matrices, not embeddings or norms?', a: 'Orthogonalization is a matrix operation — it needs a matrix. Embeddings, output heads, biases and norm gains are still trained with AdamW in Muon setups.' },
+        { q: 'With 90% acceptance, what does drafting 3 tokens buy vs 1?', a: '(1−0.9⁴)/(1−0.9) ≈ 3.44 tokens per step vs 1.9 — worth it only if the drafts are cheap, which MTP heads are.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 14 — Spec sheets (anchor)
+// ============================================================================
+
+const TECHS = [
+  { key: 'linear', label: 'linear / SSM hybrid', to: 'c-hybrid' },
+  { key: 'mla', label: 'MLA', to: 'c-kv' },
+  { key: 'sparse', label: 'sparse attention', to: 'c-sparse' },
+  { key: 'swa', label: 'sliding window', to: 'c-window' },
+  { key: 'gated', label: 'gated attention', to: 'c-gate' },
+  { key: 'moe', label: 'fine-grained MoE', to: 'c-moe' },
+  { key: 'muon', label: 'Muon', to: 'c-train' },
+  { key: 'lowp', label: 'FP8 / FP4', to: 'c-train' },
+  { key: 'mtp', label: 'MTP', to: 'c-train' },
+];
+
+const LINEUP = [
+  { m: 'DeepSeek-V3', lab: 'DeepSeek', d: 'Dec 2024', p: '671B / 37B', attn: 'MLA, all layers', moe: '256 top-8 + 1 shared', ctx: '128K', t: ['mla', 'moe', 'lowp', 'mtp'], why: 'The template: MLA + fine-grained MoE + aux-loss-free balancing + FP8 training + MTP, at ~$5.6M of GPU time.' },
+  { m: 'DeepSeek-V3.2', lab: 'DeepSeek', d: 'Sep–Dec 2025', p: '671B / 37B', attn: 'MLA + DSA (top-2,048)', moe: '256 top-8 + 1 shared', ctx: '128K', t: ['mla', 'sparse', 'moe', 'lowp', 'mtp'], why: 'Same weights shape, but a lightning indexer makes long-context attention cost flat in context length.' },
+  { m: 'DeepSeek-V4-Pro', lab: 'DeepSeek', d: 'Apr 2026', p: '1.6T / 49B', attn: 'compressed-sparse (CSA/HCA) + window', moe: 'DeepSeekMoE', ctx: '1M', t: ['sparse', 'swa', 'moe', 'muon', 'lowp', 'mtp'], why: 'Compress the cache and sparsify reads: 10% of V3.2\'s KV and 27% of its FLOPs at 1M context. See the sibling explainer.', rep: true },
+  { m: 'Kimi K2', lab: 'Moonshot', d: 'Jul 2025', p: '1T / 32B', attn: 'MLA (64 heads)', moe: '384 top-8 + 1 shared', ctx: '128K', t: ['mla', 'moe', 'muon'], why: 'First open 1T model; MuonClip kept a 15.5T-token run spike-free.' },
+  { m: 'Kimi K3', lab: 'Moonshot', d: '2026', p: '2.8T / 104B', attn: '69 KDA + 24 gated MLA', moe: '896 top-16 + 2 shared', ctx: '1M', t: ['linear', 'mla', 'gated', 'moe', 'lowp'], why: 'KDA hybrid at frontier scale, with MXFP4 quantization-aware training and Attention Residuals.' },
+  { m: 'Qwen3-Next-80B-A3B', lab: 'Qwen', d: 'Sep 2025', p: '80B / 3B', attn: '3 GDN : 1 gated attn', moe: '512 top-10 + 1 shared', ctx: '262K', t: ['linear', 'gated', 'moe', 'mtp'], why: 'The GDN hybrid prototype: extreme sparsity (3.75% active) plus 3:1 linear layers.' },
+  { m: 'Qwen3.5-397B-A17B', lab: 'Qwen', d: 'Feb 2026', p: '397B / 17B', attn: '3 GDN : 1 gated attn', moe: '512 top-10 + 1 shared', ctx: '262K', t: ['linear', 'gated', 'moe'], why: 'Qwen-reported 8.6× (32K) and 19× (256K) faster decoding than Qwen3-Max.', rep: true },
+  { m: 'Qwen3.8-2.4T-A95B', lab: 'Qwen', d: 'Aug 2026', p: '2.4T / 95B', attn: '69 GDN + 23 gated attn', moe: '512 top-10 + 1 shared', ctx: '262K', t: ['linear', 'gated', 'moe'], why: 'The GDN hybrid recipe scaled to a Max-class open model.', rep: true },
+  { m: 'MiniMax-M2', lab: 'MiniMax', d: 'Oct 2025', p: '230B / 10B', attn: 'full GQA, all 62 layers', moe: '256 top-8', ctx: '196K', t: ['moe'], why: 'The deliberate counterexample: dropped M1\'s linear attention for quality on reasoning and retrieval.' },
+  { m: 'MiniMax-M3', lab: 'MiniMax', d: 'Jun 2026', p: '~428B / ~23B', attn: 'GQA + block-sparse (indexer)', moe: 'MoE', ctx: '1M', t: ['sparse', 'moe'], why: 'Came back to efficiency via sparse, not linear, attention.', rep: true },
+  { m: 'GLM-5', lab: 'Z.ai', d: 'Feb 2026', p: '744B / 40B', attn: 'MLA + DSA', moe: '256 top-8 + 1 shared', ctx: '200K', t: ['mla', 'sparse', 'moe'], why: 'Adopted DeepSeek\'s sparse attention wholesale; later versions share one indexer across layers.', rep: true },
+  { m: 'gpt-oss-120b', lab: 'OpenAI', d: 'Aug 2025', p: '117B / 5.1B', attn: 'alternating 128-window / full, sinks', moe: '128 top-4', ctx: '131K', t: ['swa', 'moe', 'lowp'], why: 'MXFP4 experts so it fits one 80 GB GPU; learned attention-sink logits.' },
+  { m: 'Gemma 3 27B', lab: 'Google', d: 'Mar 2025', p: '27B dense', attn: '5 window (1,024) : 1 global', moe: '— (dense)', ctx: '128K', t: ['swa'], why: 'The cleanest demo of local:global interleaving — ~6× less KV at long context.' },
+  { m: 'Nemotron 3 Nano', lab: 'NVIDIA', d: 'Dec 2025', p: '30B / ~3B', attn: '23 Mamba-2 + 6 attention', moe: '128 top-6 + 2 shared', ctx: '—', t: ['linear', 'moe'], why: 'Mostly-Mamba hybrid tuned for throughput on NVIDIA hardware.', rep: true },
+];
+
+const Lineup = () => {
+  const [filter, setFilter] = useState(null);
+  const [open, setOpen] = useState('Kimi K3');
+  const counts = Object.fromEntries(TECHS.map(t => [t.key, LINEUP.filter(r => r.t.includes(t.key)).length]));
+  return (
+    <Card id="c-lineup" icon={Table2} title="Spec sheets: the flagship open models, decoded" subtitle="Every row is a combination of the cards above — filter by technique to see who bet on what" accent="fuchsia" index={14} anchor>
+      <MinSchema>
+        Read any model card as three choices: <span className="text-orange-300">how it remembers</span> (attention scheme), <span className="text-violet-300">how sparse it is</span> (experts, active %), and
+        <span className="text-emerald-300"> how it was trained</span> (optimizer, precision). The rest is scale.
+      </MinSchema>
+
+      <Predict question="Of the 2026 releases in this table (V4-Pro, K3, Qwen3.5, Qwen3.8, MiniMax-M3, GLM-5), how many use plain full attention in every layer? And what's the highest active-parameter share among them?">
+        <strong>None.</strong> Every 2026 flagship here uses linear hybrids, sparse attention, or compressed-sparse attention. And all are extremely sparse MoEs: active share ranges from ~3.1% (V4-Pro) to ~5.4% (GLM-5, M3). The 2023 "dense model with full attention" is gone from the open frontier.
+      </Predict>
+
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={() => setFilter(null)} className={`px-2 py-1 rounded-md border text-[11px] ${filter === null ? 'bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-100' : 'border-white/10 text-neutral-400 hover:text-neutral-100'}`}>all</button>
+        {TECHS.map(t => (
+          <button key={t.key} onClick={() => setFilter(f => (f === t.key ? null : t.key))}
+            className={`px-2 py-1 rounded-md border text-[11px] ${filter === t.key ? 'bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-100' : 'border-white/10 text-neutral-400 hover:text-neutral-100'}`}>
+            {t.label} <span className="font-mono text-neutral-500">{counts[t.key]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-white/10">
+        <table className="w-full min-w-[720px] text-[12px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-widest text-neutral-500 border-b border-white/10">
+              <th className="px-3 py-2 font-normal">model</th>
+              <th className="px-3 py-2 font-normal">total / active</th>
+              <th className="px-3 py-2 font-normal text-orange-300/80">attention</th>
+              <th className="px-3 py-2 font-normal text-violet-300/80">experts</th>
+              <th className="px-3 py-2 font-normal">context</th>
+            </tr>
+          </thead>
+          <tbody>
+            {LINEUP.map(r => {
+              const dim = filter && !r.t.includes(filter);
+              const isOpen = open === r.m;
+              return (
+                <React.Fragment key={r.m}>
+                  <tr onClick={() => setOpen(o => (o === r.m ? null : r.m))}
+                    className={`border-b border-white/5 cursor-pointer transition-opacity ${dim ? 'opacity-25' : 'opacity-100'} ${isOpen ? 'bg-white/[0.04]' : 'hover:bg-white/[0.03]'}`}>
+                    <td className="px-3 py-2">
+                      <div className="text-neutral-100">{r.m}{r.rep && <span className="ml-1 text-[9px] text-amber-300/80 align-top" title="configuration as reported">†</span>}</div>
+                      <div className="text-[10px] text-neutral-500">{r.lab} · {r.d}</div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-neutral-200 whitespace-nowrap">{r.p}</td>
+                    <td className="px-3 py-2 text-neutral-300">{r.attn}</td>
+                    <td className="px-3 py-2 text-neutral-300">{r.moe}</td>
+                    <td className="px-3 py-2 font-mono text-neutral-300">{r.ctx}</td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="border-b border-white/5 bg-white/[0.02]">
+                      <td colSpan={5} className="px-3 py-2">
+                        <div className="text-[12px] text-neutral-300 leading-snug">{r.why}</div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {r.t.map(k => { const t = TECHS.find(x => x.key === k); return <CrossLink key={k} to={t.to}>{t.label}</CrossLink>; })}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[10px] text-neutral-500">† configuration taken from lab announcements and third-party summaries of the model card; the others are from the labs' own reports or repositories. Click a row for the one-line "why".</div>
+
+      <WhenItMatters>Choosing an open model to self-host: the attention column predicts long-context memory, the experts column predicts GPU count vs speed, and a † is a cue to read the model card before sizing hardware.</WhenItMatters>
+
+      <QA items={[
+        { q: 'Which two labs converged on "3 linear : 1 full" with different linear layers?', a: 'Qwen (Gated DeltaNet + gated attention: Qwen3-Next, 3.5, 3.8) and Moonshot (KDA + MLA: Kimi Linear, K3).' },
+        { q: 'Which rows attack bill ① without any linear layers?', a: 'DeepSeek-V3.2 / V4 and GLM-5 (sparse or compressed-sparse attention), MiniMax-M3 (block-sparse), gpt-oss and Gemma 3 (sliding windows).' },
       ]} />
     </Card>
   );
