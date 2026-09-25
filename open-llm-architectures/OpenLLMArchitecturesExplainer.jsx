@@ -750,8 +750,6 @@ const Stub = ({ id, icon, title, index, accent }) => (
   </Card>
 );
 
-const GDN = () => <Stub id="c-gdn" icon={Activity} title="Gated DeltaNet: forget wholesale, edit surgically" index={7} accent="cyan" />;
-const KDA = () => <Stub id="c-kda" icon={Layers} title="Kimi Delta Attention: a forget-rate per channel" index={8} accent="cyan" />;
 const Hybrid = () => <Stub id="c-hybrid" icon={Network} title="Hybrid stacks: mostly linear, a little softmax" index={9} accent="sky" />;
 const GatedAttn = () => <Stub id="c-gate" icon={Eye} title="Gated attention and the end of the attention sink" index={10} accent="orange" />;
 const MoE = () => <Stub id="c-moe" icon={Boxes} title="Fine-grained MoE: 1T parameters, 32B per token" index={11} accent="violet" />;
@@ -1520,6 +1518,252 @@ const Delta = () => {
       <QA items={[
         { q: 'A fact is written twice with different values. What does additive memory return for its key?', a: 'Roughly the sum (a blend) of both values, plus interference. The delta rule returns (close to) the newer value, because its second write only adds the difference.' },
         { q: 'What does β = 0 mean for a token? And β = 1?', a: 'β = 0: skip writing this token entirely. β = 1: fully overwrite the association for this key. The model learns β per token, so it can choose what is worth remembering.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 7 — Gated DeltaNet
+// ============================================================================
+
+// Scenario B: document A (nA facts) → boundary token (gate aB) → document B (6 facts).
+const switchExperiment = (rule, nA, aB, beta, seed) => {
+  const rng = mulberry32(seed * 40503 + 7);
+  const A = Array.from({ length: nA }, () => ({ k: unitVec(rng, MEM_D), v: unitVec(rng, MEM_D) }));
+  const B = Array.from({ length: 6 }, () => ({ k: unitVec(rng, MEM_D), v: unitVec(rng, MEM_D) }));
+  const writes = [...A, { ...B[0], a: aB }, ...B.slice(1)];
+  const S = runMemory(rule, writes, { d: MEM_D, beta });
+  return {
+    newDoc: meanOf(B.map(w => cosSim(readS(S, w.k), w.v))),
+    leak: meanOf(A.map(w => cosSim(readS(S, w.k), w.v))),
+  };
+};
+
+const GDN_RULES = [
+  { key: 'lin', label: 'Linear attention', rule: 'add', gated: false, c: 'text-neutral-300', parts: 'no gate · add' },
+  { key: 'mamba', label: 'Mamba-2', rule: 'add', gated: true, c: 'text-orange-300', parts: 'gate α · add' },
+  { key: 'delta', label: 'DeltaNet', rule: 'delta', gated: false, c: 'text-sky-300', parts: 'no gate · delta β' },
+  { key: 'gdn', label: 'Gated DeltaNet', rule: 'delta', gated: true, c: 'text-cyan-300', parts: 'gate α · delta β' },
+];
+
+const ScoreCell = ({ v, good }) => {
+  const ok = good === 'high' ? v >= 0.8 : v <= 0.15;
+  const mid = good === 'high' ? v >= 0.65 : v <= 0.35;
+  const cls = ok ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400/25' : mid ? 'bg-amber-500/10 text-amber-200 border-amber-400/20' : 'bg-rose-500/10 text-rose-200 border-rose-400/25';
+  return <div className={`rounded-md border px-2 py-1.5 text-center font-mono text-[13px] ${cls}`}>{v.toFixed(2)}</div>;
+};
+
+const GateTimeline = ({ nA, aB }) => {
+  const W = 480, H = 96, L = 10, R = 10, n = nA + 6 + 1;
+  const x = (i) => L + (i + 0.5) * ((W - L - R) / n);
+  const y = (a) => 16 + (1 - a) * 40;
+  const pts = Array.from({ length: n }, (_, i) => [x(i), y(i === nA ? aB : 1)]);
+  return (
+    <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+      <text x={L} y={11} fontSize={11} fill="#a3a3a3">gate α_t per token</text>
+      <path d={'M' + pts.map(p => p.join(',')).join('L')} fill="none" stroke="#fdba74" strokeWidth={2} />
+      {Array.from({ length: n }, (_, i) => (
+        <rect key={i} x={x(i) - ((W - L - R) / n) / 2 + 1} y={66} width={Math.max(2, (W - L - R) / n - 2)} height={12} rx={2}
+          fill={i < nA ? '#a3a3a3' : i === nA ? '#f0abfc' : '#67e8f9'} fillOpacity={i === nA ? 0.9 : 0.45} />
+      ))}
+      <text x={L} y={92} fontSize={11} fill="#a3a3a3">document A · {nA} facts</text>
+      <text x={W - R} y={92} fontSize={11} fill="#67e8f9" textAnchor="end">document B · 6 facts</text>
+    </svg></ChartBox>
+  );
+};
+
+const GDN = () => {
+  const [nA, setNA] = useState(24);
+  const [aB, setAB] = useState(0.05);
+  const [beta, setBeta] = useState(1);
+  const scores = useMemo(() => GDN_RULES.map(r => {
+    const upd = [], nd = [], lk = [];
+    for (let s = 1; s <= 12; s++) {
+      const e = deltaExperiment(10, 0.3, beta, s);
+      upd.push(...e[r.rule].slice(0, e.nu));
+      const sw = switchExperiment(r.rule, nA, r.gated ? aB : 1, beta, s);
+      nd.push(sw.newDoc); lk.push(sw.leak);
+    }
+    return { ...r, upd: meanOf(upd), newDoc: meanOf(nd), leak: meanOf(lk) };
+  }), [nA, aB, beta]);
+  return (
+    <Card id="c-gdn" icon={Activity} title="Gated DeltaNet: forget wholesale, edit surgically" subtitle="Mamba-2's decay gate + DeltaNet's error-correcting write, in one recurrence" accent="cyan" index={7} anchor source="Yang, Kautz & Hatamizadeh · ICLR 2025 · NVIDIA">
+      <MinSchema>
+        Two knobs per token: <Eq>{String.raw`\gr{\alpha_t}\in(0,1)`}</Eq> shrinks the <em>whole</em> memory (clear the slate at a topic change), and <Eq>{String.raw`\beta_t`}</Eq> rewrites <em>one</em> association
+        (update a fact). Gated DeltaNet is the layer inside Qwen3-Next, Qwen3.5 and Qwen3.8.
+      </MinSchema>
+
+      <Block>{String.raw`\st{S_t} = \st{S_{t-1}}\,\Big(\gr{\alpha_t}\,\big(I-\beta_t k_t k_t^{\top}\big)\Big) + \beta_t\, v_t k_t^{\top},\qquad o_t = \st{S_t}\, q_t`}</Block>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+        {[
+          { h: 'α_t = 1, β_t = 0', b: 'ignore this token', c: 'border-white/10' },
+          { h: 'α_t ≈ 0', b: 'wipe memory (new document)', c: 'border-orange-400/25' },
+          { h: 'β_t = 1', b: 'overwrite the value at k_t', c: 'border-cyan-400/25' },
+          { h: 'α_t = 1 · add only', b: 'plain linear attention', c: 'border-white/10' },
+        ].map(x => (
+          <div key={x.h} className={`rounded-md border ${x.c} bg-white/[0.02] px-2 py-1.5`}>
+            <div className="font-mono text-neutral-100">{x.h}</div>
+            <div className="text-neutral-400 leading-snug">{x.b}</div>
+          </div>
+        ))}
+      </div>
+
+      <Predict question="Linear attention has two failure modes: it can't update a fact cleanly, and it can't drop an old document when a new one starts. Which fix — the gate α or the delta rule β — addresses which failure?">
+        The <strong>delta rule</strong> fixes updates (it writes the difference, so the new value replaces the old). The <strong>gate</strong> fixes context switches (one small α wipes everything at once — the delta rule can only erase along the keys it happens to rewrite). The scorecard below measures exactly this.
+      </Predict>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">ingredient scorecard · 16×16 memory · avg of 12 runs</div>
+          <div className="text-[10px] text-neutral-500">live simulation</div>
+        </div>
+        <GateTimeline nA={nA} aB={aB} />
+        <div className="overflow-x-auto">
+          <div className="min-w-[440px] grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-1.5 items-center">
+            <div />
+            <div className="text-[10px] text-center text-neutral-400 leading-tight">recall of <br />updated facts ↑</div>
+            <div className="text-[10px] text-center text-neutral-400 leading-tight">recall of <br />document B ↑</div>
+            <div className="text-[10px] text-center text-neutral-400 leading-tight">leakage of <br />document A ↓</div>
+            {scores.map(r => (
+              <React.Fragment key={r.key}>
+                <div>
+                  <div className={`text-[12px] ${r.c}`}>{r.label}</div>
+                  <div className="text-[10px] font-mono text-neutral-500">{r.parts}</div>
+                </div>
+                <ScoreCell v={r.upd} good="high" />
+                <ScoreCell v={r.newDoc} good="high" />
+                <ScoreCell v={r.leak} good="low" />
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <Slider label="facts in document A" value={nA} min={4} max={40} onChange={setNA} />
+          <Slider label="gate at the boundary α" value={aB} min={0} max={1} step={0.01} onChange={setAB} fmt={v => v.toFixed(2)} color="accent-orange-400" />
+          <Slider label="write strength β" value={beta} min={0.3} max={1} step={0.05} onChange={setBeta} fmt={v => v.toFixed(2)} />
+        </div>
+        <div className="text-[11px] text-neutral-400">Slide the boundary gate to 1 and the gated rules collapse into their ungated twins. In a real model <Eq>{String.raw`\alpha_t`}</Eq> is predicted from each token, so the network learns <em>where</em> the boundaries are.</div>
+      </div>
+
+      <Worked title="worked example · how long does a gated memory remember?">
+        <div>With a steady gate <Eq>\alpha</Eq>, a write fades as <Eq>{String.raw`\alpha^{\text{age}}`}</Eq>, so its half-life is <Eq>{String.raw`\ln 0.5 / \ln\alpha`}</Eq>:</div>
+        <Block>{String.raw`\alpha=\num{0.99}\Rightarrow \tfrac{\ln 0.5}{\ln 0.99}\approx \num{69}\ \text{tokens}\qquad \alpha=\num{0.9999}\Rightarrow \tfrac{\ln 0.5}{\ln 0.9999}\approx \gr{6{,}931}\ \text{tokens}`}</Block>
+        <div>A memory horizon of thousands of tokens needs <Eq>\alpha</Eq> within <Eq>{String.raw`10^{-4}`}</Eq> of 1 — which is why it is parametrized in log-space, <Eq>{String.raw`\alpha_t=\exp(-e^{A}\,\mathrm{softplus}(W_\alpha x_t+b))`}</Eq>, not as a raw sigmoid.</div>
+      </Worked>
+
+      <Misconception
+        wrong="The gate and the delta rule are two ways of doing the same thing — forgetting."
+        right="The gate is time-based and global (everything fades). The delta rule is content-based and local (only the association at k_t changes)."
+        because="GDN's paper title says it: 'Improving Mamba2 with Delta Rule'. Mamba-2 could clear but not edit; DeltaNet could edit but clears slowly. Combining them beat both on recall-heavy benchmarks at 1.3B scale." />
+
+      <WhenItMatters>You'll meet this exact recurrence in Qwen3-Next-80B-A3B (Sep 2025: 48 layers = 12 × [3 GDN + 1 gated attention]), Qwen3.5-397B-A17B (Feb 2026) and AI2's Olmo Hybrid — in each, 3 of every 4 layers are GDN.</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>The full production layer</strong> (Qwen3-Next style): project <Eq>q,k,v</Eq> → short causal conv1d (kernel 4) → SiLU → L2-normalize <Eq>q,k</Eq>; compute <Eq>{String.raw`\beta_t=\sigma(W_\beta x_t)`}</Eq> and log-space <Eq>{String.raw`\alpha_t`}</Eq>; run the chunkwise GDN kernel; then <Eq>{String.raw`\mathrm{RMSNorm}(o_t)\odot \mathrm{SiLU}(W_g x_t)`}</Eq> and the output projection. The conv gives cheap local token-shift; the output gate plays the same role as in <CrossLink to="c-gate" recap="Gated attention: multiply the attention output by a sigmoid gate computed from the input — removes attention sinks and stabilizes training.">gated attention</CrossLink>.
+        </p>
+        <p>
+          <strong>Chunkwise training.</strong> The gate multiplies into the WY/UT transform as a cumulative product of <Eq>{String.raw`\alpha`}</Eq> within each chunk, so GDN keeps DeltaNet's hardware-efficient algorithm with little overhead (reference kernels in the <span className="font-mono">flash-linear-attention</span> library).
+        </p>
+        <p>
+          <strong>Reported payoff at scale.</strong> Qwen says Qwen3.5-397B-A17B decodes 8.6× faster than Qwen3-Max at 32K context and 19× faster at 256K — the linear layers don't grow with context, and only 1 in 4 layers keeps a KV cache.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'In the scorecard, why does DeltaNet (no gate) still leak document A?', a: 'The delta rule only rewrites the directions of the keys it sees. Document B\'s 6 keys overwrite 6 directions; everything else from A stays in the state and can still be read out.' },
+        { q: 'Why is α parametrized as exp(−e^A·softplus(·)) instead of a sigmoid?', a: 'Useful horizons need α extremely close to 1 (half-life ≈ 0.69/(1−α)). The log-space form makes those values easy to reach and keeps gradients well-scaled.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 8 — Kimi Delta Attention (channel-wise gating)
+// ============================================================================
+
+const KDA = () => {
+  const [mode, setMode] = useState('kda');
+  const [spread, setSpread] = useState(2.5);
+  const [center, setCenter] = useState(2); // log10 of mean half-life
+  const rows = 12, ages = 48;
+  const halfLives = Array.from({ length: rows }, (_, i) => {
+    const off = mode === 'kda' ? (i / (rows - 1) - 0.5) * spread : 0;
+    return 10 ** (center + off);
+  });
+  const alphas = halfLives.map(h => Math.pow(0.5, 1 / h));
+  const ageAt = (j) => Math.round(10 ** ((j / (ages - 1)) * 4)); // 1 .. 10,000 tokens (log)
+  const cw = 9, ch = 14, L = 64, Tp = 8;
+  const W = L + ages * cw + 8, H = Tp + rows * ch + 34;
+  return (
+    <Card id="c-kda" icon={Layers} title="Kimi Delta Attention: a forget-rate per channel" subtitle="Replace GDN's single scalar gate with a vector — each feature dimension picks its own memory horizon" accent="cyan" index={8} source="Kimi Linear (Moonshot, Oct 2025) · Kimi K3 (2026)">
+      <MinSchema>
+        <Term>KDA</Term> = Gated DeltaNet with <Eq>{String.raw`\gr{\alpha_t}`}</Eq> promoted from one number per head to one number per key channel. Some channels keep a topic for
+        thousands of tokens while others turn over every few — one head, many timescales.
+      </MinSchema>
+
+      <Block>{String.raw`\st{S_t} = \big(I-\beta_t k_t k_t^{\top}\big)\,\mathrm{Diag}(\gr{\alpha_t})\,\st{S_{t-1}} + \beta_t\, k_t v_t^{\top},\qquad \gr{\alpha_t}\in(0,1)^{d_k}`}</Block>
+      <div className="text-[11px] text-neutral-500 -mt-2">(written in the transposed <Eq>{String.raw`d_k\times d_v`}</Eq> convention Moonshot uses; GDN is the special case <Eq>{String.raw`\mathrm{Diag}(\alpha_t)=\alpha_t I`}</Eq>)</div>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">how much of a write survives, per channel, by age</div>
+          <Tabs options={[{ key: 'gdn', label: 'scalar gate (GDN)' }, { key: 'kda', label: 'per-channel gate (KDA)' }]} value={mode} onChange={setMode} />
+        </div>
+        <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+          {alphas.map((a, i) => (
+            <g key={i}>
+              <text x={L - 6} y={Tp + i * ch + 10} fontSize={10} fill="#a3a3a3" textAnchor="end" fontFamily="monospace">
+                {halfLives[i] >= 1000 ? `${(halfLives[i] / 1000).toFixed(1)}K` : Math.round(halfLives[i])}
+              </text>
+              {Array.from({ length: ages }, (_, j) => {
+                const keep = Math.pow(a, ageAt(j));
+                return <rect key={j} x={L + j * cw} y={Tp + i * ch} width={cw - 1} height={ch - 2} fill="#22d3ee" fillOpacity={0.04 + 0.9 * keep} />;
+              })}
+            </g>
+          ))}
+          {[1, 10, 100, 1000, 10000].map((t) => {
+            const j = (Math.log10(t) / 4) * (ages - 1);
+            return <text key={t} x={L + j * cw + cw / 2} y={Tp + rows * ch + 13} fontSize={10} fill="#a3a3a3" textAnchor="middle">{fmtTok(t)}</text>;
+          })}
+          <text x={L + (ages * cw) / 2} y={H - 3} fontSize={10} fill="#a3a3a3" textAnchor="middle">age of the write (tokens, log scale)</text>
+          <text x={4} y={Tp + rows * ch + 13} fontSize={10} fill="#67e8f9">half-life</text>
+        </svg></ChartBox>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Slider label="typical half-life" value={center} min={0.5} max={3.5} step={0.05} onChange={setCenter} fmt={v => `${fmtTok(Math.round(10 ** v))} tokens`} />
+          <Slider label="spread across channels (KDA only)" value={spread} min={0} max={4} step={0.1} onChange={setSpread} fmt={v => `${v.toFixed(1)} decades`} />
+        </div>
+        <div className="text-[11px] text-neutral-400">With one scalar gate every row fades together: pick a long horizon and the head can't refresh local detail; pick a short one and it forgets the topic. Per-channel gates let the same head do both.</div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <Stat label="Kimi Linear" value="48B / 3B" sub="total / active · KDA : MLA = 3 : 1" color="text-cyan-300" />
+        <Stat label="KV cache" value="−75%" sub="vs full MLA, at 1M context" color="text-emerald-300" />
+        <Stat label="decode speed" value="6.3×" sub="time per output token vs MLA at 1M" color="text-emerald-300" />
+        <Stat label="Kimi K3" value="69 : 24" sub="KDA : gated-MLA layers (93 total)" color="text-cyan-300" />
+      </div>
+
+      <Misconception
+        wrong="A per-channel gate is just more parameters for a marginal gain."
+        right="It changes what the recurrence can represent: a diagonal decay can act as a learned, content-dependent positional signal."
+        because="Different channels decaying at different rates encode 'how long ago' the way RoPE's frequency bands encode position. Moonshot leans on this: Kimi Linear's MLA layers use no positional encoding at all and let KDA carry position." />
+
+      <WhenItMatters>KDA is the Moonshot lineage's linear layer: Kimi Linear (48B-A3B, Oct 2025) proved it at small scale, and Kimi K3 (2.8T total / 104B active, 1M context, 2026) runs 69 KDA layers against 24 gated-MLA layers.</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>Why not full matrix gates?</strong> A general transition <Eq>{String.raw`A_t = D_t - a_t b_t^\top`}</Eq> (diagonal-plus-low-rank, "DPLR") is more expressive but its chunkwise kernel is slower. KDA ties the low-rank part to the key itself (<Eq>{String.raw`a_t=b_t=\sqrt{\beta_t}k_t`}</Eq>) and keeps the diagonal fine-grained — a constrained DPLR that keeps the fast WY-style chunk algorithm.
+        </p>
+        <p>
+          <strong>Where α comes from.</strong> The channel gates are produced from each token through a low-rank projection, then mapped into <Eq>(0,1)</Eq> in log-space like GDN's scalar gate — cheap to compute and stable near 1.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'Set the spread to 0 in KDA mode. What do you get?', a: 'Every channel has the same α, i.e. exactly Gated DeltaNet\'s scalar gate. KDA strictly generalizes GDN.' },
+        { q: 'Kimi Linear keeps 1 full-attention (MLA) layer in 4. Why roughly 75% less KV cache rather than 100%?', a: 'Only the MLA layers keep a per-token cache; the 3 KDA layers of each group hold a fixed-size state. One cache-bearing layer in four → about a quarter of the cache.' },
       ]} />
     </Card>
   );
