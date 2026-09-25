@@ -744,14 +744,7 @@ const Hero = () => (
 // CARDS (stubs — filled stage by stage)
 // ============================================================================
 
-const Stub = ({ id, icon, title, index, accent }) => (
-  <Card id={id} icon={icon} title={title} index={index} accent={accent}>
-    <p className="text-neutral-500 text-sm">Coming in the next build stage.</p>
-  </Card>
-);
 
-const Future = () => <Stub id="c-future" icon={Telescope} title="Where it's going — and what got walked back" index={15} accent="amber" />;
-const Trails = () => <Stub id="c-trails" icon={MapIcon} title="Next trails" index={16} accent="violet" />;
 
 // ============================================================================
 // CARD 1 — The three bills (spine)
@@ -2523,6 +2516,183 @@ const Lineup = () => {
     </Card>
   );
 };
+
+// ============================================================================
+// CARD 15 — Where it's going (timeline + 2026 trends)
+// ============================================================================
+
+const KIND_COLOR = { linear: '#22d3ee', attn: '#fb923c', moe: '#a78bfa', train: '#34d399', resid: '#f472b6' };
+const LANES = ['DeepSeek', 'Qwen', 'Moonshot', 'MiniMax', 'Z.ai', 'others'];
+const EVENTS = [
+  { lane: 'DeepSeek', y: 2024.37, k: 'attn', t: 'DeepSeek-V2', d: 'May 2024 · introduces MLA and DeepSeekMoE at scale' },
+  { lane: 'DeepSeek', y: 2024.96, k: 'train', t: 'DeepSeek-V3', d: 'Dec 2024 · FP8 training, MTP, aux-loss-free balancing' },
+  { lane: 'DeepSeek', y: 2025.13, k: 'attn', t: 'NSA paper', d: 'Feb 2025 · Native Sparse Attention (ACL 2025 best paper)' },
+  { lane: 'DeepSeek', y: 2025.71, k: 'attn', t: 'V3.2-Exp · DSA', d: 'Sep 2025 · lightning indexer + top-2,048 sparse attention' },
+  { lane: 'DeepSeek', y: 2025.99, k: 'resid', t: 'mHC', d: 'Dec 2025 · manifold-constrained hyper-connections (doubly-stochastic residual mixing)' },
+  { lane: 'DeepSeek', y: 2026.07, k: 'moe', t: 'Engram', d: 'Jan 2026 · hashed N-gram lookup memory as a new sparsity axis' },
+  { lane: 'DeepSeek', y: 2026.31, k: 'attn', t: 'DeepSeek-V4 (preview)', d: 'Apr 2026 · compressed-sparse attention, 1M context, Muon, mHC †' },
+  { lane: 'Qwen', y: 2025.3, k: 'moe', t: 'Qwen3', d: 'Apr 2025 · 235B-A22B, 128 experts, QK-norm' },
+  { lane: 'Qwen', y: 2025.69, k: 'linear', t: 'Qwen3-Next', d: 'Sep 2025 · 3 GDN : 1 gated attention, 512 experts, 80B-A3B' },
+  { lane: 'Qwen', y: 2025.92, k: 'attn', t: 'Gated attention', d: 'Dec 2025 · NeurIPS 2025 best paper' },
+  { lane: 'Qwen', y: 2026.12, k: 'linear', t: 'Qwen3.5', d: 'Feb 2026 · GDN hybrid at 397B-A17B' },
+  { lane: 'Qwen', y: 2026.61, k: 'linear', t: 'Qwen3.8', d: 'Aug 2026 · 2.4T-A95B; Flash-Next pairs GDN with sparse attention and a 4-branch gated residual †' },
+  { lane: 'Moonshot', y: 2025.13, k: 'attn', t: 'MoBA', d: 'Feb 2025 · mixture of block attention' },
+  { lane: 'Moonshot', y: 2025.53, k: 'train', t: 'Kimi K2', d: 'Jul 2025 · 1T-A32B, MuonClip, 15.5T tokens without loss spikes' },
+  { lane: 'Moonshot', y: 2025.83, k: 'linear', t: 'Kimi Linear', d: 'Oct 2025 · KDA : MLA = 3 : 1, 75% less KV, 6.3× decode at 1M' },
+  { lane: 'Moonshot', y: 2026.21, k: 'resid', t: 'Attention Residuals', d: 'Mar 2026 · layers attend over earlier layers\' outputs instead of summing them' },
+  { lane: 'Moonshot', y: 2026.55, k: 'linear', t: 'Kimi K3', d: '2026 · 2.8T-A104B, 69 KDA + 24 gated MLA, MXFP4 QAT' },
+  { lane: 'MiniMax', y: 2025.04, k: 'linear', t: 'MiniMax-01', d: 'Jan 2025 · lightning (linear) attention, 7 : 1' },
+  { lane: 'MiniMax', y: 2025.46, k: 'linear', t: 'MiniMax-M1', d: 'Jun 2025 · 456B reasoning model on the same hybrid' },
+  { lane: 'MiniMax', y: 2025.82, k: 'attn', t: 'MiniMax-M2', d: 'Oct 2025 · back to full attention in all layers' },
+  { lane: 'MiniMax', y: 2026.42, k: 'attn', t: 'MiniMax-M3', d: 'Jun 2026 · block-sparse attention with an indexer, 1M context †' },
+  { lane: 'Z.ai', y: 2025.55, k: 'moe', t: 'GLM-4.5', d: 'Jul 2025 · 355B-A32B, Muon, MTP' },
+  { lane: 'Z.ai', y: 2026.1, k: 'attn', t: 'GLM-5', d: 'Feb 2026 · 744B-A40B with DeepSeek Sparse Attention' },
+  { lane: 'Z.ai', y: 2026.65, k: 'linear', t: 'GLM-5.3-Flash', d: 'Aug 2026 · hybrid of linear and sparse attention †' },
+  { lane: 'others', y: 2025.2, k: 'attn', t: 'Gemma 3', d: 'Mar 2025 · 5 local : 1 global, window 1,024' },
+  { lane: 'others', y: 2025.59, k: 'train', t: 'gpt-oss', d: 'Aug 2025 · MXFP4 experts, attention sinks, alternating windows' },
+  { lane: 'others', y: 2025.95, k: 'linear', t: 'Nemotron 3 Nano', d: 'Dec 2025 · Mamba-2 hybrid MoE' },
+  { lane: 'others', y: 2026.18, k: 'linear', t: 'Olmo Hybrid', d: 'Mar 2026 · fully open 3 GDN : 1 attention testbed' },
+];
+
+const Timeline = () => {
+  const [hover, setHover] = useState(null);
+  const [sel, setSel] = useState(EVENTS.find(e => e.t === 'Kimi K3'));
+  const W = 520, L = 74, R = 12, Tp = 22, lane = 30;
+  const H = Tp + LANES.length * lane + 22;
+  const x = (y) => L + ((y - 2024.25) / (2026.85 - 2024.25)) * (W - L - R);
+  return (
+    <>
+      <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+        {[2025, 2026].map(y => (
+          <g key={y}>
+            <line x1={x(y)} x2={x(y)} y1={Tp - 6} y2={H - 20} stroke="#fff" strokeOpacity={0.12} />
+            <text x={x(y)} y={H - 6} fontSize={11} fill="#a3a3a3" textAnchor="middle">{y}</text>
+          </g>
+        ))}
+        <text x={x(2026.73)} y={H - 6} fontSize={11} fill="#a3a3a3" textAnchor="middle">now</text>
+        {LANES.map((ln, i) => (
+          <g key={ln}>
+            <line x1={L} x2={W - R} y1={Tp + i * lane + lane / 2} y2={Tp + i * lane + lane / 2} stroke="#fff" strokeOpacity={0.05} />
+            <text x={L - 8} y={Tp + i * lane + lane / 2 + 4} fontSize={11} fill="#d4d4d4" textAnchor="end">{ln}</text>
+          </g>
+        ))}
+        {EVENTS.map(e => {
+          const cy = Tp + LANES.indexOf(e.lane) * lane + lane / 2;
+          const on = sel && sel.t === e.t;
+          return (
+            <motion.circle key={e.t} cx={x(e.y)} cy={cy} r={on ? 7.5 : 5.5} fill={KIND_COLOR[e.k]} fillOpacity={on ? 1 : 0.8}
+              stroke={on ? '#fff' : 'none'} strokeWidth={2} style={{ cursor: 'pointer' }}
+              initial={{ scale: 0 }} whileInView={{ scale: 1 }} viewport={{ once: true }} transition={{ delay: (e.y - 2024.3) * 0.4 }}
+              onClick={() => setSel(e)}
+              onMouseEnter={(ev) => setHover({ e, mx: ev.clientX, my: ev.clientY })}
+              onMouseMove={(ev) => setHover({ e, mx: ev.clientX, my: ev.clientY })}
+              onMouseLeave={() => setHover(null)} />
+          );
+        })}
+      </svg></ChartBox>
+      <FloatingTip hover={hover} width={260} render={({ e }) => (
+        <div><div className="font-medium" style={{ color: KIND_COLOR[e.k] }}>{e.t}</div><div className="text-neutral-300 mt-0.5">{e.d}</div></div>
+      )} />
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-neutral-400">
+        {[['linear', 'linear / hybrid layers'], ['attn', 'attention: latent · sparse · window · gated'], ['moe', 'MoE / sparsity'], ['train', 'training & precision'], ['resid', 'residual stream']].map(([k, l]) => (
+          <span key={k} className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: KIND_COLOR[k] }} />{l}</span>
+        ))}
+      </div>
+      {sel && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[12.5px]">
+          <span className="font-medium" style={{ color: KIND_COLOR[sel.k] }}>{sel.t}</span> <span className="text-neutral-500">· {sel.lane}</span>
+          <div className="text-neutral-300">{sel.d}</div>
+        </div>
+      )}
+    </>
+  );
+};
+
+const Future = () => (
+  <Card id="c-future" icon={Telescope} title="Where it's going — and what got walked back" subtitle="Two years of open releases, and the four threads the 2026 models are pulling on" accent="amber" index={15}>
+    <MinSchema>
+      2025 settled the recipe (latent or hybrid attention + very sparse MoE + Muon/low precision). 2026 pushes on four fronts: make even the "full" layers sparse, redesign the
+      residual stream, add capacity through lookup tables, and go to 4-bit everywhere.
+    </MinSchema>
+
+    <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <div className="text-[11px] uppercase tracking-widest text-neutral-400">architecture releases by lab · 2024 → Sep 2026</div>
+        <div className="text-[10px] text-neutral-500">hover or click a dot · † = details from announcements / summaries</div>
+      </div>
+      <Timeline />
+    </div>
+
+    <div className="grid md:grid-cols-2 gap-3">
+      {[
+        { h: '① The last full layers go sparse', c: 'text-orange-300', b: 'Hybrids kept 1 full-attention layer in 4 — now those become sparse too: GLM-5 adopted DSA and later shared one indexer across 4 layers; Qwen3.8-Flash-Next pairs GDN with a block-level sparse attention; MiniMax-M3 and DeepSeek-V4 use indexer-driven block/compressed sparsity. †' },
+        { h: '② The residual stream gets redesigned', c: 'text-pink-300', b: 'The one part of the 2017 transformer nobody touched. DeepSeek\'s mHC widens it into 4 mixed streams (kept stable by doubly-stochastic mixing); Kimi\'s Attention Residuals let each layer softmax-attend over earlier layers\' outputs; Qwen\'s Gated Residual uses 4 gated branches.' },
+        { h: '③ Capacity through lookup tables', c: 'text-violet-300', b: 'After experts, the next sparse axis is memory you index rather than compute: DeepSeek\'s Engram (hashed N-gram lookup), and N-gram embedding tables holding ~46% of LongCat-Flash-Lite\'s parameters and 51B of Qwen3.8-Flash-Next\'s — kept off the accelerator. †' },
+        { h: '④ 4-bit becomes the training format', c: 'text-emerald-300', b: 'MXFP4 quantization-aware training (Kimi K3), NVFP4 pre-training (NVIDIA Nemotron 3 Super/Ultra), FP4 expert weights (DeepSeek-V4). The cure for outliers — gates, clipping, fine-grained scales — is what makes this possible.' },
+      ].map(x => (
+        <div key={x.h} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className={`text-[12px] font-medium ${x.c}`}>{x.h}</div>
+          <div className="mt-1 text-[12.5px] text-neutral-300 leading-snug">{x.b}</div>
+        </div>
+      ))}
+    </div>
+
+    <Block>{String.raw`\text{Attention Residuals:}\quad h_{l} = \sum_{i<l} \underbrace{\mathrm{softmax}_i\big(w_l^{\top}\,\mathrm{RMSNorm}(v_i)\big)}_{\text{learned per-layer pseudo-query } w_l}\; v_i \qquad\text{vs. standard}\quad h_l = \sum_{i<l} v_i`}</Block>
+
+    <Misconception
+      wrong="Architecture progress is a straight line: each release strictly supersedes the last."
+      right="Labs walk things back. MiniMax went linear → full → sparse in 18 months; DeepSeek moved from MLA to compressed-sparse attention in V4; Qwen and Moonshot kept softmax layers in every hybrid."
+      because="Small-scale benchmarks miss failure modes (multi-hop retrieval, long-context after fine-tuning) and serving stacks lag new layers. What survives is what works at scale and is cheap to serve." />
+
+    <WhenItMatters>Planning inference infrastructure for 2027: expect KV caches to shrink (hybrids, compressed-sparse), models to grow in total parameters while active stays ~3–5%, and FP4 to be the default checkpoint format.</WhenItMatters>
+
+    <QA items={[
+      { q: 'Why is the residual stream a natural next target after attention and FFNs?', a: 'It\'s the one remaining untouched component: a fixed sum where every layer\'s output gets equal weight. At 90+ layers early contributions get diluted, and learned, input-dependent mixing (mHC, AttnRes, gated residuals) buys quality for a few percent of compute.' },
+      { q: 'N-gram lookup tables add parameters without FLOPs. What resource do they spend instead?', a: 'Memory capacity and bandwidth — but for tables accessed sparsely by hashed keys, they can live in cheaper host memory and be prefetched, unlike experts.' },
+    ]} />
+  </Card>
+);
+
+// ============================================================================
+// CARD 16 — Next trails
+// ============================================================================
+
+const Trails = () => (
+  <Card id="c-trails" icon={MapIcon} title="Next trails" subtitle="Where to go from here" accent="violet" index={16}>
+    <NextSteps groups={[
+      { title: 'sibling explainers', note: 'in this repo', items: [
+        { label: 'DeepSeek-V4 · million-token context', href: '#deepseek-v4', note: 'One model in depth: compressed-sparse attention, mHC, Muon and FP4 — cards 4, 13 and 15 zoomed in.' },
+        { label: 'Machine Learning · least-squares to transformers', href: '#machine-learning', note: 'The baseline transformer every card here modifies.' },
+        { label: 'Linear Algebra', href: '#linear-algebra', note: 'Outer products, low rank, Householder transforms, SVD — the math of MLA, DeltaNet and Muon.' },
+        { label: 'Optimization', href: '#optimization', note: 'Gradient descent, momentum and conditioning — what Muon is improving on.' },
+        { label: 'Data Centers · v2', href: '#data-centers-v2', note: 'The memory-bandwidth-bound hardware that makes bill ① bite.' },
+        { label: 'Control Theory', href: '#control-theory', note: 'State-space models — the lineage Mamba and linear attention come from.' },
+      ] },
+      { title: 'deepen inside the topic', items: [
+        { label: 'Gated Delta Networks (Yang, Kautz, Hatamizadeh)', href: 'https://arxiv.org/abs/2412.06464', note: 'The GDN paper — ablations of gate vs delta, hybrid variants.' },
+        { label: 'Parallelizing Linear Transformers with the Delta Rule', href: 'https://arxiv.org/abs/2406.06484', note: 'The WY-representation trick that makes DeltaNet trainable at scale.' },
+        { label: 'Kimi Linear tech report', href: 'https://arxiv.org/abs/2510.26692', note: 'KDA, the 3:1 hybrid, NoPE for MLA layers.' },
+        { label: 'flash-linear-attention', href: 'https://github.com/fla-org/flash-linear-attention', note: 'Reference Triton kernels for GDN, KDA, Mamba-2 and friends.' },
+        { label: 'Gated Attention for LLMs (code + paper)', href: 'https://github.com/qiuzh20/gated_attention', note: 'NeurIPS 2025 best paper — the sigmoid output gate.' },
+        { label: 'DeepSeek-V3 technical report', href: 'https://arxiv.org/abs/2412.19437', note: 'MLA, aux-loss-free balancing, FP8, MTP in one place.' },
+        { label: 'Native Sparse Attention', href: 'https://arxiv.org/abs/2502.11089', note: 'Compressed + selected + sliding branches.' },
+        { label: 'Kimi K2 tech report', href: 'https://arxiv.org/abs/2507.20534', note: 'MuonClip and QK-clip at 1T parameters.' },
+        { label: 'Muon (Keller Jordan)', href: 'https://kellerjordan.github.io/posts/muon/', note: 'The original write-up with the Newton–Schulz coefficients.' },
+        { label: 'Kimi K3 repository', href: 'https://github.com/MoonshotAI/Kimi-K3', note: 'Model card and tech report for the 69 KDA + 24 gated MLA flagship.' },
+      ] },
+      { title: 'upstream foundations', items: [
+        { label: 'Fast weights & associative memory', note: 'Schmidhuber (1992) and Hopfield: linear attention is a fast-weight memory.' },
+        { label: 'Widrow–Hoff / LMS adaptive filters', note: 'The 1960 origin of the delta rule — online least squares.' },
+        { label: 'Numerical linear algebra', note: 'Newton–Schulz iterations, WY/UT representations of Householder products.' },
+        { label: 'Floating-point formats', note: 'E4M3, E2M1, shared exponents — why block scaling works.' },
+      ] },
+      { title: 'zoom out', items: [
+        { label: 'Inference economics', note: 'PagedAttention/vLLM, prefix caching, disaggregated prefill/decode — where KV-cache savings turn into price cuts.' },
+        { label: 'The open-weight ecosystem', note: 'Why Chinese labs lead open architecture work, and how licenses (MIT, Apache-2.0, modified MIT) shape adoption.' },
+      ] },
+    ]} />
+  </Card>
+);
 
 // ============================================================================
 // Page
