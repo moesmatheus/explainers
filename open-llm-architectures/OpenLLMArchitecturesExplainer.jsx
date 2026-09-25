@@ -750,8 +750,6 @@ const Stub = ({ id, icon, title, index, accent }) => (
   </Card>
 );
 
-const MoE = () => <Stub id="c-moe" icon={Boxes} title="Fine-grained MoE: 1T parameters, 32B per token" index={11} accent="violet" />;
-const Balance = () => <Stub id="c-balance" icon={Scale} title="Load balancing without the auxiliary loss" index={12} accent="violet" />;
 const Train = () => <Stub id="c-train" icon={Rocket} title="Training tricks: Muon, FP8/MXFP4, multi-token prediction" index={13} accent="emerald" />;
 const Lineup = () => <Stub id="c-lineup" icon={Table2} title="Spec sheets: the flagship open models, decoded" index={14} accent="fuchsia" />;
 const Future = () => <Stub id="c-future" icon={Telescope} title="Where it's going — and what got walked back" index={15} accent="amber" />;
@@ -1984,6 +1982,273 @@ const GatedAttn = () => {
       <QA items={[
         { q: 'Why can\'t a standard softmax head output exactly zero?', a: 'Its output is a convex combination of value vectors — weights are positive and sum to 1. The best it can do is attend to a token with a near-zero value vector, which is what the sink becomes.' },
         { q: 'How does the gate help FP8/FP4 quantization?', a: 'Without sinks there are no giant "massive activations" on a few tokens, so tensors have a narrower dynamic range and quantize with less error.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 11 — Fine-grained MoE
+// ============================================================================
+
+// total / active in billions; experts = routed, k = active routed, sh = shared; rep = reported via secondary sources
+const MOE_MODELS = [
+  { n: 'DeepSeek-V3', lab: 'DeepSeek', d: 'Dec 2024', t: 671, a: 37, experts: 256, k: 8, sh: 1 },
+  { n: 'Qwen3-235B-A22B', lab: 'Qwen', d: 'Apr 2025', t: 235, a: 22, experts: 128, k: 8, sh: 0 },
+  { n: 'Llama 4 Maverick', lab: 'Meta', d: 'Apr 2025', t: 400, a: 17, experts: 128, k: 1, sh: 1 },
+  { n: 'Kimi K2', lab: 'Moonshot', d: 'Jul 2025', t: 1000, a: 32, experts: 384, k: 8, sh: 1 },
+  { n: 'GLM-4.5', lab: 'Z.ai', d: 'Jul 2025', t: 355, a: 32, experts: 160, k: 8, sh: 1 },
+  { n: 'gpt-oss-120b', lab: 'OpenAI', d: 'Aug 2025', t: 117, a: 5.1, experts: 128, k: 4, sh: 0 },
+  { n: 'Qwen3-Next-80B', lab: 'Qwen', d: 'Sep 2025', t: 80, a: 3, experts: 512, k: 10, sh: 1 },
+  { n: 'MiniMax-M2', lab: 'MiniMax', d: 'Oct 2025', t: 230, a: 10, experts: 256, k: 8, sh: 0 },
+  { n: 'Nemotron 3 Nano', lab: 'NVIDIA', d: 'Dec 2025', t: 30, a: 3, experts: 128, k: 6, sh: 2, rep: true },
+  { n: 'GLM-5', lab: 'Z.ai', d: 'Feb 2026', t: 744, a: 40, experts: 256, k: 8, sh: 1, rep: true },
+  { n: 'Qwen3.5-397B', lab: 'Qwen', d: 'Feb 2026', t: 397, a: 17, experts: 512, k: 10, sh: 1, rep: true },
+  { n: 'DeepSeek-V4-Pro', lab: 'DeepSeek', d: 'Apr 2026', t: 1600, a: 49, rep: true },
+  { n: 'DeepSeek-V4-Flash', lab: 'DeepSeek', d: 'Apr 2026', t: 284, a: 13, experts: 256, k: 6, sh: 1, rep: true },
+  { n: 'Kimi K3', lab: 'Moonshot', d: '2026', t: 2800, a: 104, experts: 896, k: 16, sh: 2 },
+  { n: 'Qwen3.8-2.4T', lab: 'Qwen', d: 'Aug 2026', t: 2400, a: 95, experts: 512, k: 10, sh: 1, rep: true },
+];
+
+const MoEScatter = ({ selected, onSelect }) => {
+  const [hover, setHover] = useState(null);
+  const W = 520, H = 300, L = 46, R = 16, Tp = 14, Bm = 40;
+  const lx = (t) => L + ((Math.log10(t) - 1) / (Math.log10(4000) - 1)) * (W - L - R); // 10B..4T
+  const ly = (a) => Tp + (1 - (Math.log10(a) - 0) / (Math.log10(200) - 0)) * (H - Tp - Bm); // 1B..200B
+  const ratios = [{ r: 1 / 5, l: '20% active' }, { r: 1 / 20, l: '5%' }, { r: 1 / 50, l: '2%' }];
+  // label placement: [dx, dy, anchor] — hand-tuned so neighbours don't collide (detector 1)
+  const labelled = {
+    'DeepSeek-V3': [-9, -7, 'end'], 'Kimi K2': [0, 17, 'middle'], 'Kimi K3': [-9, -8, 'end'], 'Qwen3.8-2.4T': [-9, 5, 'end'],
+    'gpt-oss-120b': [9, 4, 'start'], 'Qwen3-Next-80B': [9, 4, 'start'], 'MiniMax-M2': [9, 4, 'start'],
+    'Nemotron 3 Nano': [9, -10, 'start'], 'DeepSeek-V4-Pro': [0, -11, 'middle'],
+  };
+  return (
+    <>
+      <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+        {[10, 100, 1000].map(t => (
+          <g key={t}>
+            <line x1={lx(t)} x2={lx(t)} y1={Tp} y2={H - Bm} stroke="#fff" strokeOpacity={0.06} />
+            <text x={lx(t)} y={H - Bm + 15} fontSize={11} fill="#a3a3a3" textAnchor="middle">{t >= 1000 ? `${t / 1000}T` : `${t}B`}</text>
+          </g>
+        ))}
+        {[1, 10, 100].map(a => (
+          <g key={a}>
+            <line x1={L} x2={W - R} y1={ly(a)} y2={ly(a)} stroke="#fff" strokeOpacity={0.06} />
+            <text x={L - 6} y={ly(a) + 4} fontSize={11} fill="#a3a3a3" textAnchor="end">{a}B</text>
+          </g>
+        ))}
+        {ratios.map(({ r, l }) => {
+          const t0 = 10, t1 = 4000;
+          const p0 = [lx(t0), ly(Math.max(1, t0 * r))], p1 = [lx(t1), ly(Math.min(200, t1 * r))];
+          const tStart = Math.max(t0, 1 / r);
+          return (
+            <g key={l}>
+              <line x1={lx(tStart)} y1={ly(tStart * r)} x2={p1[0]} y2={p1[1]} stroke="#c4b5fd" strokeOpacity={0.25} strokeDasharray="4 4" />
+              <text x={lx(tStart) + 4} y={ly(tStart * r) - 4} fontSize={10} fill="#a78bfa">{l}</text>
+            </g>
+          );
+        })}
+        <text x={(L + W - R) / 2} y={H - 6} fontSize={11} fill="#a3a3a3" textAnchor="middle">total parameters (log)</text>
+        <text x={12} y={(Tp + H - Bm) / 2} fontSize={11} fill="#a3a3a3" textAnchor="middle" transform={`rotate(-90 12 ${(Tp + H - Bm) / 2})`}>active per token (log)</text>
+        {MOE_MODELS.map(m => {
+          const on = selected === m.n;
+          return (
+            <g key={m.n} onClick={() => onSelect(m.n)} style={{ cursor: 'pointer' }}
+              onMouseEnter={(e) => setHover({ m, mx: e.clientX, my: e.clientY })}
+              onMouseMove={(e) => setHover({ m, mx: e.clientX, my: e.clientY })}
+              onMouseLeave={() => setHover(null)}>
+              <circle cx={lx(m.t)} cy={ly(m.a)} r={on ? 7 : 5} fill="#8b5cf6" fillOpacity={on ? 1 : 0.7} stroke={on ? '#f5f3ff' : '#c4b5fd'} strokeWidth={on ? 2 : 1} />
+              {(labelled[m.n] || on) && (() => {
+                const [dx, dy, anchor] = labelled[m.n] || (m.t > 1500 ? [-9, 4, 'end'] : [9, 4, 'start']);
+                return <text x={lx(m.t) + dx} y={ly(m.a) + dy} fontSize={10.5} fill={on ? '#f5f3ff' : '#ddd6fe'} textAnchor={anchor}>{m.n}</text>;
+              })()}
+            </g>
+          );
+        })}
+      </svg></ChartBox>
+      <FloatingTip hover={hover} width={260} render={({ m }) => (
+        <div className="space-y-0.5">
+          <div className="text-violet-200 font-medium">{m.n} <span className="text-neutral-500 text-[10px]">· {m.lab} · {m.d}</span></div>
+          <div className="font-mono text-neutral-200">{m.t >= 1000 ? `${m.t / 1000}T` : `${m.t}B`} total · {m.a}B active · {((m.a / m.t) * 100).toFixed(1)}%</div>
+          {m.experts && <div className="text-neutral-400">{m.experts} routed experts, top-{m.k}{m.sh ? ` + ${m.sh} shared` : ''}</div>}
+          {m.rep && <div className="text-[10px] text-amber-300/80">config as reported; spot-check the model card</div>}
+        </div>
+      )} />
+    </>
+  );
+};
+
+const choose = (n, k) => { let r = 1; for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i; return r; };
+const fmtBig = (x) => (x >= 1e12 ? `${(x / 1e12).toFixed(1)} trillion` : x >= 1e9 ? `${(x / 1e9).toFixed(1)} billion` : x >= 1e6 ? `${(x / 1e6).toFixed(1)} million` : fmtNum(Math.round(x)));
+
+const MoE = () => {
+  const [selected, setSelected] = useState('Kimi K2');
+  const [split, setSplit] = useState(4);
+  const m = MOE_MODELS.find(x => x.n === selected);
+  const baseN = 16, baseK = 2;
+  const N = baseN * split, K = baseK * split;
+  return (
+    <Card id="c-moe" icon={Boxes} title="Fine-grained MoE: 1T parameters, 32B per token" subtitle="Knowledge scales with total parameters; cost scales with active ones" accent="violet" index={11} source="DeepSeekMoE (2024) · every flagship since">
+      <MinSchema>
+        Replace each FFN with hundreds of small experts plus one always-on <Term>shared expert</Term>; a <Term>router</Term> sends each token to its top-<Eq>k</Eq>. Open flagships now
+        run <strong>~3–5% of their weights per token</strong> — Kimi K2 touches 32B of 1T.
+      </MinSchema>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="text-[11px] uppercase tracking-widest text-neutral-400">total vs active parameters · open MoE models 2024–26</div>
+          <div className="text-[10px] text-neutral-500">hover or click a dot</div>
+        </div>
+        <MoEScatter selected={selected} onSelect={setSelected} />
+        {m && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <Stat label={m.n} value={`${((m.a / m.t) * 100).toFixed(1)}%`} sub="of weights used per token" color="text-violet-300" />
+            <Stat label="experts" value={m.experts ? `${m.k}/${m.experts}` : '—'} sub={m.sh ? `routed, + ${m.sh} shared` : 'routed'} color="text-violet-300" />
+            <Stat label="BF16 weights" value={fmtBytes(m.t * 2e9)} sub="must all sit in memory" color="text-rose-300" />
+            <Stat label="compute like a" value={`${m.a}B`} sub="dense model, per token" color="text-emerald-300" />
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="text-[11px] uppercase tracking-widest text-neutral-400">fine-graining · same compute, many more expert combinations</div>
+        <div className="flex flex-wrap gap-[3px]">
+          {Array.from({ length: N }, (_, i) => {
+            const on = (i * 7 + 3) % N < K;
+            return <div key={`${split}-${i}`} className="rounded-sm" style={{ width: Math.max(6, 64 / split), height: 18, background: on ? '#8b5cf6' : '#ffffff10', opacity: on ? 0.9 : 1 }} />;
+          })}
+        </div>
+        <Slider label="split each of 16 experts into m smaller ones (k scales with m)" value={split} min={1} max={16} onChange={setSplit} fmt={v => `m = ${v}`} color="accent-violet-400" />
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="experts" value={`${N}`} sub={`each 1/${split} the size`} color="text-violet-300" />
+          <Stat label="active per token" value={`${K}`} sub="same FLOPs as top-2 of 16" />
+          <Stat label="possible combinations" value={fmtBig(choose(N, K))} sub={`C(${N}, ${K}) vs C(16, 2) = 120`} color="text-emerald-300" />
+        </div>
+      </div>
+
+      <Worked title="worked example · Kimi K2's sparsity">
+        <Block>{String.raw`\frac{\text{active}}{\text{total}} = \frac{\num{32}\text{B}}{\num{1000}\text{B}} = \mo{3.2\%}\qquad \text{experts: } \tfrac{\num{8}+\num{1}}{\num{384}+\num{1}}\ \text{per MoE layer}`}</Block>
+        <div>Per token it computes like a 32B dense model <Grounding>4× a Llama-3-8B forward pass</Grounding> — but it must hold 1T weights (<span className="font-mono">~2 TB</span> in BF16) somewhere. MoE trades memory for compute.</div>
+      </Worked>
+
+      <Misconception
+        wrong="Experts specialize by topic — a math expert, a French expert, a code expert."
+        right="Routing mostly specializes on token-level and syntactic patterns (punctuation, word pieces, positions in a phrase); topic structure is weak and distributed."
+        because="The router decides per token, per layer, from the hidden state. Nothing in the loss asks for human-legible topics — fine-grained experts make this even more true." />
+
+      <WhenItMatters>Picking hardware: MoE is great when you serve many users on a multi-GPU node (compute per token is small, weights amortize), and awkward on one consumer GPU (you still need every expert in memory — hence MXFP4 checkpoints like gpt-oss).</WhenItMatters>
+
+      <Deeper>
+        <p>
+          <strong>DeepSeekMoE's two moves.</strong> (1) <em>Fine-grained segmentation</em>: split experts <Eq>m</Eq> ways and activate <Eq>mk</Eq> — same FLOPs, far more combinations, so each token gets a more tailored mixture. (2) <em>Shared expert isolation</em>: a few always-on experts absorb common knowledge, so routed experts don't all redundantly relearn it.
+        </p>
+        <p>
+          <strong>Router details.</strong> DeepSeek-V3 scores experts with a sigmoid, <Eq>{String.raw`s_{i}=\sigma(u^\top e_i)`}</Eq>, and normalizes the gate weights among the selected top-<Eq>k</Eq> only. Variants since: LongCat-Flash adds "zero-computation" identity experts so easy tokens use fewer FLOPs (18.6–31.3B active); NVIDIA's LatentMoE routes and computes experts in a compressed latent space to afford more of them.
+        </p>
+      </Deeper>
+
+      <QA items={[
+        { q: 'Two 1T-parameter models: one dense, one MoE with 32B active. Which needs more GPU memory for weights? Which is faster per token?', a: 'Same memory (both hold 1T parameters). The MoE is ~30× cheaper in FLOPs per token and much faster to decode.' },
+        { q: 'Why does fine-graining (more, smaller experts) help at the same compute?', a: 'More possible combinations of experts per token — C(64,8) ≈ 4.4 billion vs C(16,2) = 120 — so each token can be served by a more specific mixture of knowledge.' },
+      ]} />
+    </Card>
+  );
+};
+
+// ============================================================================
+// CARD 12 — Load balancing without the auxiliary loss
+// ============================================================================
+
+const NB_E = 16, NB_K = 2, NB_TOK = 256;
+const Balance = () => {
+  const [ref, enterKey] = useEnterKey();
+  const [method, setMethod] = useState('bias');
+  const [gamma, setGamma] = useState(0.02);
+  const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(1);
+  const [state, setState] = useState(() => ({ step: 0, bias: new Array(NB_E).fill(0), load: new Array(NB_E).fill(0), hist: [] }));
+  const pop = useMemo(() => { const r = mulberry32(5); return Array.from({ length: NB_E }, (_, i) => 1.2 * Math.exp(-i / 4) + 0.2 * gauss(r)); }, []);
+  const reset = () => setState({ step: 0, bias: new Array(NB_E).fill(0), load: new Array(NB_E).fill(0), hist: [] });
+  useEffect(() => { reset(); setPlaying(true); }, [enterKey, method]); // eslint-disable-line react-hooks/exhaustive-deps
+  const acc = useRef(0);
+  useTicker(playing, (dt) => {
+    acc.current += dt * 8 * speed;
+    if (acc.current < 1) return;
+    acc.current = 0;
+    setState(s => {
+      if (s.step >= 120) return s;
+      const rng = mulberry32(1000 + s.step);
+      const load = new Array(NB_E).fill(0);
+      for (let t = 0; t < NB_TOK; t++) {
+        const sc = pop.map((p, j) => p + 0.9 * gauss(rng) + (method === 'bias' ? s.bias[j] : 0));
+        const top = sc.map((v, j) => [v, j]).sort((a, b) => b[0] - a[0]).slice(0, NB_K);
+        top.forEach(([, j]) => { load[j] += 1; });
+      }
+      const mean = (NB_TOK * NB_K) / NB_E;
+      const bias = method === 'bias' ? s.bias.map((b, j) => b + gamma * Math.sign(mean - load[j])) : s.bias;
+      const imb = Math.max(...load) / mean;
+      return { step: s.step + 1, bias, load, hist: [...s.hist, imb] };
+    });
+  });
+  useEffect(() => { if (state.step >= 120) setPlaying(false); }, [state.step]);
+  const mean = (NB_TOK * NB_K) / NB_E;
+  const maxLoad = Math.max(mean * 4, ...state.load);
+  const W = 460, H = 120, L = 34, R = 10, Tp = 10, Bm = 22;
+  const hx = (i) => L + (i / 120) * (W - L - R);
+  const hy = (v) => Tp + (1 - clamp((v - 1) / 5, 0, 1)) * (H - Tp - Bm);
+  return (
+    <Card id="c-balance" icon={Scale} title="Load balancing without the auxiliary loss" subtitle="Nudge a per-expert bias instead of fighting the language-model loss" accent="violet" index={12} source="DeepSeek-V3 (2024) · adopted widely since">
+      <MinSchema>
+        Left alone, routers collapse onto a few favorite experts (idle GPUs, dropped tokens). DeepSeek-V3's fix: add a bias <Eq>{String.raw`b_i`}</Eq> to each expert's score <em>for selection only</em>,
+        and after every step raise it for under-loaded experts and lower it for overloaded ones. No gradient, no loss term to trade off.
+      </MinSchema>
+
+      <Block>{String.raw`\text{select: } \operatorname{top\text{-}k}_i\,\big(s_{t,i} + \mo{b_i}\big)\qquad \text{weight: } g_{t,i}=\frac{s_{t,i}}{\sum_{j\in\text{top-}k} s_{t,j}}\qquad \mo{b_i} \leftarrow \mo{b_i} + \gamma\,\operatorname{sign}\big(\bar{c} - c_i\big)`}</Block>
+
+      <div ref={ref} className="rounded-xl border border-white/10 bg-neutral-950/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Tabs options={[{ key: 'none', label: 'no balancing' }, { key: 'bias', label: 'bias update (aux-loss-free)' }]} value={method} onChange={setMethod} color="violet" />
+          <PlayControls playing={playing} setPlaying={setPlaying} speed={speed} setSpeed={setSpeed} onReset={() => { reset(); setPlaying(true); }} />
+        </div>
+        <div className="text-[11px] text-neutral-400">16 experts · top-2 · 256 tokens per step · step <span className="font-mono text-neutral-100">{state.step}</span>/120 · experts sorted by innate popularity</div>
+        <div className="flex items-end gap-1 h-28 relative">
+          <div className="absolute left-0 right-0 border-t border-dashed border-emerald-400/50" style={{ bottom: `${(mean / maxLoad) * 100}%` }} />
+          {state.load.map((l, j) => (
+            <div key={j} className="flex-1 h-full flex items-end">
+              <motion.div className="w-full rounded-t-sm" style={{ background: l > mean * 1.5 ? '#fb7185' : '#8b5cf6' }}
+                initial={false} animate={{ height: `${(l / maxLoad) * 100}%` }} transition={{ duration: 0.12 }} />
+            </div>
+          ))}
+        </div>
+        <div className="text-[10px] text-emerald-300/80">dashed line = perfectly even load ({mean} tokens per expert)</div>
+        <ChartBox><svg viewBox={`0 0 ${W} ${H}`} className={CHART_CLS}>
+          <text x={L} y={Tp - 1} fontSize={10} fill="#a3a3a3">busiest expert ÷ average load</text>
+          {[1, 2, 4, 6].map(v => (
+            <g key={v}>
+              <line x1={L} x2={W - R} y1={hy(v)} y2={hy(v)} stroke="#fff" strokeOpacity={0.07} />
+              <text x={L - 5} y={hy(v) + 4} fontSize={10} fill="#a3a3a3" textAnchor="end">{v}×</text>
+            </g>
+          ))}
+          {state.hist.length > 1 && <path d={'M' + state.hist.map((v, i) => `${hx(i).toFixed(1)},${hy(v).toFixed(1)}`).join('L')} fill="none" stroke={method === 'bias' ? '#a78bfa' : '#fb7185'} strokeWidth={2} />}
+          <text x={W - R} y={H - 6} fontSize={10} fill="#a3a3a3" textAnchor="end">training steps →</text>
+        </svg></ChartBox>
+        <Slider label="bias update speed γ" value={gamma} min={0.005} max={0.08} step={0.005} onChange={setGamma} fmt={v => v.toFixed(3)} color="accent-violet-400" />
+      </div>
+
+      <Predict question="The classic fix is an auxiliary loss that penalizes uneven routing. Why might a bias that bypasses the gradient work better?">
+        The auxiliary loss's gradient flows into the router and the hidden states, pulling them toward "be balanced" and away from "predict the next token well" — a tuning trade-off (too weak: collapse; too strong: worse model). The bias only changes <em>which</em> experts are chosen, never the gate weights or the LM gradient, so balance comes almost for free. DeepSeek-V3 kept only a tiny sequence-level auxiliary term as a safety net.
+      </Predict>
+
+      <Misconception
+        wrong="Perfect balance is the goal."
+        right="Balance is an infrastructure constraint, not a quality objective. You want 'balanced enough' that no GPU becomes the straggler — without forcing tokens onto experts that don't suit them."
+        because="In expert parallelism every expert lives on some GPU; the step waits for the busiest one. Mild imbalance is fine; 4× imbalance means 75% of the cluster idles." />
+
+      <WhenItMatters>Training or fine-tuning MoE models at scale — and debugging "why is my MoE fine-tune slow": check per-expert load before blaming kernels.</WhenItMatters>
+
+      <QA items={[
+        { q: 'Does the bias b_i change the output mixture for a token?', a: 'No — it only affects which experts make the top-k. The gate weights use the raw scores s_{t,i}, so the model\'s function is not distorted by the balancing term.' },
+        { q: 'What happens in the simulation if γ is too large?', a: 'Biases overshoot: popular experts get pushed below average, then back up — the imbalance line oscillates instead of settling. Too small and it converges slowly.' },
       ]} />
     </Card>
   );
