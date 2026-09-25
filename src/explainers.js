@@ -13,6 +13,7 @@ import LinearAlgebraExplainer from '../linear-algebra/LinearAlgebraExplainer.jsx
 import MachineLearningExplainer from '../machine-learning/MachineLearningExplainer.jsx';
 import MarketsModelingExplainer from '../markets-modeling/MarketsModelingExplainer.jsx';
 import ODEsExplainer from '../odes/ODEsExplainer.jsx';
+import OpenLLMArchitecturesExplainer from '../open-llm-architectures/OpenLLMArchitecturesExplainer.jsx';
 import OptimizationExplainer from '../optimization/OptimizationExplainer.jsx';
 import PDEsExplainer from '../pde/PDEsExplainer.jsx';
 import PrivateEquityBrasilExplainer from '../private-equity-brasil/PrivateEquityBrasilExplainer.jsx';
@@ -79,6 +80,14 @@ export const explainers = [
       'Million-token context for the price of a short one \u2014 compressed-sparse attention, manifold-constrained residuals, the Muon optimizer, and FP4 training, one innovation at a time.',
     tags: ['ML', 'interactive', 'equations'],
     component: DeepSeekV4Explainer,
+  },
+  {
+    slug: 'open-llm-architectures',
+    title: 'Inside the New Open LLMs',
+    blurb:
+      'Gated DeltaNet, Kimi Delta Attention, MLA, sparse and gated attention, fine-grained MoE, Muon \u2014 what Qwen, DeepSeek, Kimi, MiniMax and friends changed inside the transformer, one bottleneck at a time.',
+    tags: ['ML', 'interactive', 'equations'],
+    component: OpenLLMArchitecturesExplainer,
   },
   {
     slug: 'linear-algebra',
