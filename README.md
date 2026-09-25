@@ -3,9 +3,41 @@
 A sandbox of interactive, single-file concept explainers. One React
 component per topic, shared deps, shared home page, deployed together.
 
-Live topics so far: AI-code onboarding, data centers (v1 & v2), DeepSeek-V4,
-linear algebra, machine learning, quantum mechanics, reinforcement learning,
-systems thinking, world economy, and Brazilian corporate tax.
+## Live site
+
+**<https://moesmatheus.github.io/explainers/>**: the home page lists every
+explainer. GitHub Pages redeploys it on every push to `main`
+(`.github/workflows/deploy.yml`).
+
+Direct links:
+
+- [Reading Code You Didn’t Write](https://moesmatheus.github.io/explainers/#ai-code-onboarding)
+- [The Stack](https://moesmatheus.github.io/explainers/#app-stack)
+- [Data Centers](https://moesmatheus.github.io/explainers/#data-centers)
+- [Data Centers · v2](https://moesmatheus.github.io/explainers/#data-centers-v2)
+- [Data Centers · Brasil · mapa competitivo](https://moesmatheus.github.io/explainers/#data-centers-br)
+- [DeepSeek-V4](https://moesmatheus.github.io/explainers/#deepseek-v4)
+- [Linear Algebra](https://moesmatheus.github.io/explainers/#linear-algebra)
+- [Machine Learning](https://moesmatheus.github.io/explainers/#machine-learning)
+- [Quantum Mechanics](https://moesmatheus.github.io/explainers/#quantum-mechanics)
+- [Reinforcement Learning](https://moesmatheus.github.io/explainers/#reinforcement-learning)
+- [Deep Uncertainty](https://moesmatheus.github.io/explainers/#deep-uncertainty)
+- [Forecasting Noisy Series](https://moesmatheus.github.io/explainers/#statistical-forecasting)
+- [Modeling Markets](https://moesmatheus.github.io/explainers/#markets-modeling)
+- [The Retail Quant’s Stack](https://moesmatheus.github.io/explainers/#retail-quant)
+- [The Bettor’s Stack](https://moesmatheus.github.io/explainers/#bettors-stack)
+- [The Forecaster’s Craft](https://moesmatheus.github.io/explainers/#forecasters-craft)
+- [Superforecasting](https://moesmatheus.github.io/explainers/#superforecasting)
+- [Systems Thinking](https://moesmatheus.github.io/explainers/#systems-thinking)
+- [Private Equity no Brasil · manual de campo](https://moesmatheus.github.io/explainers/#private-equity-brasil)
+- [Tributação Brasil · empresas](https://moesmatheus.github.io/explainers/#tributacao-brasil)
+- [The World Economy](https://moesmatheus.github.io/explainers/#world-economy)
+- [Causal Inference](https://moesmatheus.github.io/explainers/#causal-inference)
+- [Control Theory](https://moesmatheus.github.io/explainers/#control-theory)
+- [Differential Equations](https://moesmatheus.github.io/explainers/#odes)
+- [Partial Differential Equations](https://moesmatheus.github.io/explainers/#pde)
+- [Optimization](https://moesmatheus.github.io/explainers/#optimization)
+- [Decision Theory](https://moesmatheus.github.io/explainers/#decision-theory)
 
 ## Running the dev server
 
