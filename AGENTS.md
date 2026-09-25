@@ -399,6 +399,25 @@ The SVG-edge clip check from detector 1, but for HTML — any descendant whose b
 
 **How to read the output:** `esc` is the pixel overflow past the card edge. Fix by adding padding to the card, moving the element inside, or (if intentional) adding `overflow-hidden` to the card.
 
+### 11. Mobile SVG text size
+
+A chart SVG with `className="w-full"` and a wide viewBox (600+) shrinks its text in proportion on a phone. At 375 px, `fontSize=9.5` renders at ~4 px. Run this after `preview_resize` to 375 px:
+
+```js
+(() => {
+  const hits = [];
+  document.querySelectorAll('main svg').forEach(svg => {
+    const vbw = svg.viewBox?.baseVal?.width || 0; if (vbw < 200 || vbw > 2000) return; // skip icons + KaTeX
+    const k = svg.getBoundingClientRect().width / vbw; if (!k) return;
+    const fs = Math.min(...[...svg.querySelectorAll('text')].map(t => parseFloat(t.getAttribute('font-size') || getComputedStyle(t).fontSize)));
+    if (isFinite(fs) && fs * k < 7) hits.push({ card: svg.closest('[id]')?.id, px: +(fs * k).toFixed(1) });
+  });
+  return { count: hits.length, samples: hits.slice(0, 10) };
+})()
+```
+
+**How to read the output:** each hit is a chart whose smallest label renders under 7 px. Fix: give the SVG a mobile `min-width` (≈560 px) and let its direct parent scroll horizontally, e.g. `div:has(> svg.chart){overflow-x:auto}` + `@media (max-width:640px){svg.chart{min-width:560px}}`. Then re-check that `document.documentElement.scrollWidth === innerWidth`, so the page itself never scrolls sideways. First caught in `private-equity-brasil`.
+
 ### Workflow
 
 1. Navigate to the explainer under test: `window.location.hash = '#<slug>'`, wait ~2.5 s for render.

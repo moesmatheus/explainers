@@ -15,6 +15,7 @@ import MarketsModelingExplainer from '../markets-modeling/MarketsModelingExplain
 import ODEsExplainer from '../odes/ODEsExplainer.jsx';
 import OptimizationExplainer from '../optimization/OptimizationExplainer.jsx';
 import PDEsExplainer from '../pde/PDEsExplainer.jsx';
+import PrivateEquityBrasilExplainer from '../private-equity-brasil/PrivateEquityBrasilExplainer.jsx';
 import QuantumMechanicsExplainer from '../quantum-mechanics/QuantumMechanicsExplainer.jsx';
 import ReinforcementLearningExplainer from '../reinforcement-learning/ReinforcementLearningExplainer.jsx';
 import RetailQuantExplainer from '../retail-quant/RetailQuantExplainer.jsx';
@@ -174,6 +175,14 @@ export const explainers = [
       'Stocks, flows, feedback loops, delays, archetypes, leverage points — how to see the wiring under the world.',
     tags: ['thinking', 'interactive', 'lists'],
     component: SystemsThinkingExplainer,
+  },
+  {
+    slug: 'private-equity-brasil',
+    title: 'Private Equity no Brasil · manual de campo',
+    blurb:
+      'O dia a dia do PE brasileiro — FIP sob a RCVM 175, quem é quem, taxas e waterfall, custos, do teaser ao closing, due diligence, SPA e acordo de acionistas, o cardápio de dívida com CDI alto, holding e ágio, CADE, rotina pós-closing, saídas e o vocabulário do corredor.',
+    tags: ['finance', 'interactive', 'pt-br'],
+    component: PrivateEquityBrasilExplainer,
   },
   {
     slug: 'tributacao-brasil',
