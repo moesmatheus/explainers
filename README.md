@@ -17,6 +17,7 @@ Direct links:
 - [Data Centers · v2](https://moesmatheus.github.io/explainers/#data-centers-v2)
 - [Data Centers · Brasil · mapa competitivo](https://moesmatheus.github.io/explainers/#data-centers-br)
 - [DeepSeek-V4](https://moesmatheus.github.io/explainers/#deepseek-v4)
+- [Inside the New Open LLMs](https://moesmatheus.github.io/explainers/#open-llm-architectures)
 - [Linear Algebra](https://moesmatheus.github.io/explainers/#linear-algebra)
 - [Machine Learning](https://moesmatheus.github.io/explainers/#machine-learning)
 - [Quantum Mechanics](https://moesmatheus.github.io/explainers/#quantum-mechanics)
